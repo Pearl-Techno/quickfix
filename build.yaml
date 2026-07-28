@@ -1,0 +1,10 @@
+inno_bundle:
+  # Limit languages to English only
+  languages:
+    - en
+
+  # Optional: Better compression
+  compression: lzma2/ultra64
+
+  # Optional: Custom installer name
+  output_filename: quickfix-setup

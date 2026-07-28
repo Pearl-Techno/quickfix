@@ -1,0 +1,21 @@
+app_name: quickfix
+app_version: 0.1.0+1
+app_publisher: Administrator
+app_exe_name: quickfix.exe
+output_dir: installer
+
+# Specify only the languages you have installed
+languages:
+  - english
+  - french
+  - german
+  - spanish
+  - italian
+  - portuguese
+  - dutch
+  - russian
+  - japanese
+
+inno_bundle:
+  id: 55bb7ad0-81c0-11f1-a7de-55764533cc0d
+  publisher: Administrator
