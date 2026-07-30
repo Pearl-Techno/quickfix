@@ -713,12 +713,24 @@ class _PriceListScreenState extends State<PriceListScreen>
                     )
                   : _filteredProducts.isEmpty
                   ? _buildEmptyState()
-                  : RefreshIndicator(
-                      onRefresh: _loadData,
-                      child: SingleChildScrollView(
-                        padding: const EdgeInsets.all(16),
-                        child: _buildProductTable(),
-                      ),
+                  : LayoutBuilder(
+                      builder: (context, constraints) {
+                        final availableW = constraints.maxWidth - 32;
+                        final tableW = availableW > 1000 ? availableW : 1000.0;
+                        return RefreshIndicator(
+                          onRefresh: _loadData,
+                          child: SingleChildScrollView(
+                            padding: const EdgeInsets.all(16),
+                            child: SingleChildScrollView(
+                              scrollDirection: Axis.horizontal,
+                              child: SizedBox(
+                                width: tableW,
+                                child: _buildProductTable(),
+                              ),
+                            ),
+                          ),
+                        );
+                      },
                     ),
             ),
           ],

@@ -143,6 +143,8 @@ class _DashboardScreenState extends State<DashboardScreen>
     final totalInvoices = invoices.length;
     final paidInvoices = invoices.where((i) => i.isPaid).length;
     final overdueInvoices = invoices.where((i) => i.isOverdue).length;
+    final totalProducts = products.length;
+    final totalStockQty = products.fold(0, (sum, p) => sum + p.quantity);
 
     final recentQuotes = quotes.take(5).toList();
     final recentInvoices = invoices.take(5).toList();
@@ -179,6 +181,8 @@ class _DashboardScreenState extends State<DashboardScreen>
                         totalInvoices,
                         paidInvoices,
                         overdueInvoices,
+                        totalProducts,
+                        totalStockQty,
                       ),
                       const SizedBox(height: 24),
                       _buildQuickActions(),
@@ -515,17 +519,19 @@ class _DashboardScreenState extends State<DashboardScreen>
     int totalInvoices,
     int paidInvoices,
     int overdueInvoices,
+    int totalProducts,
+    int totalStockQty,
   ) {
     return LayoutBuilder(
       builder: (context, constraints) {
         int crossAxisCount = 2;
         double childAspectRatio = 1.6;
         if (constraints.maxWidth > 1100) {
-          crossAxisCount = 6;
-          childAspectRatio = 1.2;
+          crossAxisCount = 7;
+          childAspectRatio = 1.1;
         } else if (constraints.maxWidth > 700) {
-          crossAxisCount = 3;
-          childAspectRatio = 1.7;
+          crossAxisCount = 4;
+          childAspectRatio = 1.6;
         }
 
         return GridView.count(
@@ -576,6 +582,14 @@ class _DashboardScreenState extends State<DashboardScreen>
               color: AppColors.info,
               detail: 'Active accounts',
               trend: _getTrend(totalCustomers, 0),
+            ),
+            _buildStatCard(
+              title: 'Item Count',
+              value: totalProducts.toString(),
+              icon: Icons.inventory_2,
+              color: AppColors.primary,
+              detail: '$totalStockQty stock units',
+              trend: _getTrend(totalProducts, 0),
             ),
             _buildStatCard(
               title: 'Low Stock',
@@ -886,7 +900,7 @@ class _DashboardScreenState extends State<DashboardScreen>
                   style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
                 ),
                 Text(
-                  _formatCurrency(quote.total),
+                  _formatCurrency(quote.effectiveTotal),
                   style: const TextStyle(
                     fontWeight: FontWeight.bold,
                     fontSize: 14,
@@ -1047,7 +1061,7 @@ class _DashboardScreenState extends State<DashboardScreen>
                     Expanded(
                       flex: 3,
                       child: _buildCell(
-                        _formatCurrency(quote.total),
+                        _formatCurrency(quote.effectiveTotal),
                         center: true,
                         isBold: true,
                         color: AppColors.primary,

@@ -10,6 +10,7 @@ class SettingsProvider extends ChangeNotifier {
   static const String _keyCompressImages = 'compress_images';
   static const String _keyLastSync = 'last_sync_time';
   static const String _keyDataUsage = 'data_usage_saving';
+  static const String _keyVatEnabled = 'vat_enabled';
 
   bool _notificationsEnabled = true;
   bool _darkModeEnabled = false;
@@ -17,6 +18,7 @@ class SettingsProvider extends ChangeNotifier {
   bool _autoSyncEnabled = true;
   bool _compressImages = true;
   bool _dataSavingMode = false;
+  bool _vatEnabled = false; // Disabled by default unless explicitly enabled in settings
   String _languageCode = 'en';
   DateTime? _lastSyncTime;
 
@@ -31,10 +33,18 @@ class SettingsProvider extends ChangeNotifier {
   bool get autoSyncEnabled => _autoSyncEnabled;
   bool get compressImages => _compressImages;
   bool get dataSavingMode => _dataSavingMode;
+  bool get vatEnabled => _vatEnabled;
   String get languageCode => _languageCode;
   DateTime? get lastSyncTime => _lastSyncTime;
 
   // ============= SETTERS =============
+  Future<void> setVatEnabled(bool value) async {
+    if (_vatEnabled == value) return;
+    _vatEnabled = value;
+    await _saveSetting(_keyVatEnabled, value);
+    notifyListeners();
+  }
+
   Future<void> setNotificationsEnabled(bool value) async {
     if (_notificationsEnabled == value) return;
     _notificationsEnabled = value;
@@ -101,6 +111,7 @@ class SettingsProvider extends ChangeNotifier {
       _autoSyncEnabled = prefs.getBool(_keyAutoSync) ?? true;
       _compressImages = prefs.getBool(_keyCompressImages) ?? true;
       _dataSavingMode = prefs.getBool(_keyDataUsage) ?? false;
+      _vatEnabled = prefs.getBool(_keyVatEnabled) ?? false;
       _languageCode = prefs.getString(_keyLanguage) ?? 'en';
 
       final lastSyncStr = prefs.getString(_keyLastSync);

@@ -254,7 +254,12 @@ class Helpers {
     try {
       String basePath;
       if (Platform.isWindows) {
-        basePath = 'C:\\Quick fix';
+        try {
+          final docs = await getApplicationDocumentsDirectory();
+          basePath = '${docs.path}\\Quick fix';
+        } catch (_) {
+          basePath = 'C:\\Quick fix';
+        }
       } else {
         final temp = await getTemporaryDirectory();
         basePath = '${temp.path}/Quick fix';

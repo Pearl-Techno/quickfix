@@ -86,8 +86,8 @@ class _InvoicesScreenState extends State<InvoicesScreen>
       final customerProvider = context.read<CustomerProvider>();
       invoiceProvider.clearSearch();
 
-      await invoiceProvider.loadInvoices();
-      await customerProvider.loadCustomers();
+      await invoiceProvider.loadInvoices(forceRefresh: true);
+      await customerProvider.loadCustomers(forceRefresh: true);
 
       setState(() {
         _isLoading = false;
@@ -369,18 +369,24 @@ class _InvoicesScreenState extends State<InvoicesScreen>
                     )
                    : displayInvoices.isEmpty
                   ? _buildEmptyState()
-                  : RefreshIndicator(
-                      onRefresh: _loadInvoices,
-                      child: SingleChildScrollView(
-                        padding: const EdgeInsets.all(16),
-                        child: SingleChildScrollView(
-                          scrollDirection: Axis.horizontal,
-                          child: SizedBox(
-                            width: 1600,
-                            child: _buildInvoiceTable(displayInvoices),
+                  : LayoutBuilder(
+                      builder: (context, constraints) {
+                        final availableW = constraints.maxWidth - 32;
+                        final tableW = availableW > 1100 ? availableW : 1100.0;
+                        return RefreshIndicator(
+                          onRefresh: _loadInvoices,
+                          child: SingleChildScrollView(
+                            padding: const EdgeInsets.all(16),
+                            child: SingleChildScrollView(
+                              scrollDirection: Axis.horizontal,
+                              child: SizedBox(
+                                width: tableW,
+                                child: _buildInvoiceTable(displayInvoices),
+                              ),
+                            ),
                           ),
-                        ),
-                      ),
+                        );
+                      },
                     ),
             ),
           ],
@@ -830,17 +836,17 @@ class _InvoicesScreenState extends State<InvoicesScreen>
                 Expanded(
                   flex: 2,
                   child: _buildCell(
-                    _formatCurrency(invoice.balanceDue),
+                    _formatCurrency(invoice.effectiveBalanceDue),
                     center: true,
-                    color: invoice.balanceDue > 0 ? AppColors.error : AppColors.success,
-                    isBold: invoice.balanceDue > 0,
+                    color: invoice.effectiveBalanceDue > 0 ? AppColors.error : AppColors.success,
+                    isBold: invoice.effectiveBalanceDue > 0,
                   ),
                 ),
                 // Total Amount
                 Expanded(
                   flex: 2,
                   child: _buildCell(
-                    _formatCurrency(invoice.total),
+                    _formatCurrency(invoice.effectiveTotal),
                     center: true,
                     isBold: true,
                     color: AppColors.primary,

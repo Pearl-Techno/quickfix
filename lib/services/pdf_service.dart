@@ -3,6 +3,8 @@ import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:flutter/services.dart' show rootBundle;
 import 'package:flutter/foundation.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:quickfix/config/constants.dart';
 import 'package:quickfix/models/customer.dart';
 import 'package:quickfix/models/invoice.dart';
 import 'package:quickfix/models/quote.dart';
@@ -175,8 +177,8 @@ class PdfService {
             title: 'Quote Details',
             dateLabel: 'Date:',
             dateVal: _formatDate(quote.createdAt),
-            rightHeader: 'Valid Until:',
-            rightVal: _formatDate(quote.createdAt?.add(Duration(days: quote.validityDays))),
+            rightHeader: quote.expiryDate != null ? 'Valid Until:' : '',
+            rightVal: quote.expiryDate != null ? _formatDate(quote.expiryDate) : '',
             status: quote.displayStatus,
             preparedBy: preparedBy,
             documentDate: quote.createdAt,
@@ -191,7 +193,83 @@ class PdfService {
     );
 
     final bytes = await pdf.save();
-    final file = File('quote_${quote.quoteNumber}.pdf');
+    final tempDir = await getTemporaryDirectory();
+    final file = File('${tempDir.path}/quote_${quote.quoteNumber}.pdf');
+    await file.writeAsBytes(bytes);
+    return file;
+  }
+
+  Future<File> generateSiteMeasurementPdf({
+    required Quote quote,
+    required Customer customer,
+    String? preparedBy,
+  }) async {
+    await _loadFonts();
+    final pdf = pw.Document();
+
+    pdf.addPage(
+      pw.Page(
+        pageFormat: PdfPageFormat.a4,
+        margin: const pw.EdgeInsets.all(32),
+        theme: pw.ThemeData(
+          defaultTextStyle: pw.TextStyle(
+            font: _font ?? pw.Font.helvetica(),
+            fontSize: 10,
+          ),
+        ),
+        build: (context) => pw.Column(
+          crossAxisAlignment: pw.CrossAxisAlignment.start,
+          children: [
+            _buildHeader('SITE MEASUREMENT REPORT', quote.quoteNumber),
+            pw.SizedBox(height: 12),
+            _buildInfoSection(
+              customer: customer,
+              title: 'Survey Details',
+              dateLabel: 'Date:',
+              dateVal: _formatDate(quote.createdAt),
+              rightHeader: 'Quote #:',
+              rightVal: quote.quoteNumber,
+              status: quote.displayStatus,
+              preparedBy: preparedBy,
+              documentDate: quote.createdAt,
+            ),
+            pw.SizedBox(height: 16),
+            _buildDedicatedMeasurementsSection(quote.siteMeasurements ?? 'No site measurements recorded.'),
+            if (quote.scope != null && quote.scope!.isNotEmpty) ...[
+              pw.SizedBox(height: 16),
+              _buildScopeOfWorks(quote.scope),
+            ],
+            if (quote.notes != null && quote.notes!.isNotEmpty) ...[
+              pw.SizedBox(height: 16),
+              pw.Container(
+                width: double.infinity,
+                padding: const pw.EdgeInsets.all(12),
+                decoration: pw.BoxDecoration(
+                  color: lightBgColor,
+                  border: pw.Border.all(color: borderCol, width: 0.5),
+                  borderRadius: pw.BorderRadius.circular(4),
+                ),
+                child: pw.Column(
+                  crossAxisAlignment: pw.CrossAxisAlignment.start,
+                  children: [
+                    _createText('ADDITIONAL FIELD NOTES', isBold: true, fontSize: 9, color: primaryColor),
+                    pw.SizedBox(height: 4),
+                    _createText(quote.notes!, fontSize: 8.5, color: textDark),
+                  ],
+                ),
+              ),
+            ],
+            pw.Spacer(),
+            _buildSignatureSection(preparedBy: preparedBy, documentDate: quote.createdAt),
+            _buildFooter(),
+          ],
+        ),
+      ),
+    );
+
+    final bytes = await pdf.save();
+    final tempDir = await getTemporaryDirectory();
+    final file = File('${tempDir.path}/measurements_${quote.quoteNumber}.pdf');
     await file.writeAsBytes(bytes);
     return file;
   }
@@ -223,8 +301,8 @@ class PdfService {
             title: 'Invoice Details',
             dateLabel: 'Date:',
             dateVal: _formatDate(invoice.createdAt),
-            rightHeader: 'Due Date:',
-            rightVal: _formatDate(invoice.dueDate),
+            rightHeader: invoice.dueDate != null ? 'Due Date:' : '',
+            rightVal: invoice.dueDate != null ? _formatDate(invoice.dueDate) : '',
             status: invoice.displayStatus,
             preparedBy: preparedBy,
             documentDate: invoice.createdAt,
@@ -238,7 +316,8 @@ class PdfService {
     );
 
     final bytes = await pdf.save();
-    final file = File('invoice_${invoice.invoiceNumber}.pdf');
+    final tempDir = await getTemporaryDirectory();
+    final file = File('${tempDir.path}/invoice_${invoice.invoiceNumber}.pdf');
     await file.writeAsBytes(bytes);
     return file;
   }
@@ -289,7 +368,8 @@ class PdfService {
     );
 
     final bytes = await pdf.save();
-    final file = File('receipt_${invoice.invoiceNumber}.pdf');
+    final tempDir = await getTemporaryDirectory();
+    final file = File('${tempDir.path}/receipt_${invoice.invoiceNumber}.pdf');
     await file.writeAsBytes(bytes);
     return file;
   }
@@ -472,14 +552,13 @@ class PdfService {
   pw.Widget _buildReceiptTotals(Invoice invoice) {
     return pw.Column(
       children: [
-        if (invoice.subtotal > 0)
-          pw.Row(
-            mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
-            children: [
-              _createText('Subtotal:', fontSize: 7.5, color: textMuted),
-              _createText('KSh ${invoice.subtotal.toStringAsFixed(2)}', fontSize: 7.5, color: textDark),
-            ],
-          ),
+        pw.Row(
+          mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+          children: [
+            _createText('Subtotal:', fontSize: 7.5, color: textMuted),
+            _createText('KSh ${invoice.effectiveSubtotal.toStringAsFixed(2)}', fontSize: 7.5, color: textDark),
+          ],
+        ),
         if (invoice.tax > 0)
           pw.Row(
             mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
@@ -504,20 +583,19 @@ class PdfService {
               _createText('KSh ${invoice.amountPaid.toStringAsFixed(2)}', fontSize: 7.5, color: textDark),
             ],
           ),
-        if (invoice.balanceDue > 0)
-          pw.Row(
-            mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
-            children: [
-              _createText('Balance Due:', fontSize: 7.5, fontWeight: pw.FontWeight.bold, color: textDark, isBold: true),
-              _createText('KSh ${invoice.balanceDue.toStringAsFixed(2)}', fontSize: 7.5, fontWeight: pw.FontWeight.bold, color: textDark, isBold: true),
-            ],
-          ),
+        pw.Row(
+          mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+          children: [
+            _createText('Balance Due:', fontSize: 7.5, fontWeight: pw.FontWeight.bold, color: textDark, isBold: true),
+            _createText('KSh ${invoice.effectiveBalanceDue.toStringAsFixed(2)}', fontSize: 7.5, fontWeight: pw.FontWeight.bold, color: textDark, isBold: true),
+          ],
+        ),
         pw.SizedBox(height: 2),
         pw.Row(
           mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
           children: [
             _createText('GRAND TOTAL:', fontSize: 8.5, fontWeight: pw.FontWeight.bold, color: primaryColor, isBold: true),
-            _createText('KSh ${invoice.total.toStringAsFixed(2)}', fontSize: 8.5, fontWeight: pw.FontWeight.bold, color: primaryColor, isBold: true),
+            _createText('KSh ${invoice.effectiveTotal.toStringAsFixed(2)}', fontSize: 8.5, fontWeight: pw.FontWeight.bold, color: primaryColor, isBold: true),
           ],
         ),
         pw.Divider(thickness: 0.5, color: borderCol),
@@ -622,6 +700,7 @@ class PdfService {
             documentDate: quote.createdAt,
           ),
           _buildScopeOfWorks(quote.scope),
+          _buildSiteMeasurements(quote.siteMeasurements),
           _buildItemsTable(items, productSkus),
           _buildBottomSection(quote, quoteQrData),
           _buildSignatureSection(preparedBy: preparedBy, documentDate: quote.createdAt),
@@ -662,7 +741,8 @@ class PdfService {
     );
 
     final bytes = await pdf.save();
-    final file = File('quote_invoice_${quote.quoteNumber}.pdf');
+    final tempDir = await getTemporaryDirectory();
+    final file = File('${tempDir.path}/quote_invoice_${quote.quoteNumber}.pdf');
     await file.writeAsBytes(bytes);
     return file;
   }
@@ -915,7 +995,8 @@ class PdfService {
                   ),
                   pw.SizedBox(height: 4),
                   _buildDetailRow(dateLabel, dateVal),
-                  _buildDetailRow(rightHeader, rightVal),
+                  if (rightHeader.trim().isNotEmpty && rightVal.trim().isNotEmpty && rightVal != '-')
+                    _buildDetailRow(rightHeader, rightVal),
                   if (status != null)
                     _buildDetailRow('Status:', status),
                   if (preparedBy != null && preparedBy.isNotEmpty) ...[
@@ -1079,6 +1160,53 @@ class PdfService {
         ],
       ),
     );
+  }
+
+  pw.Widget _buildDedicatedMeasurementsSection(String measurements) {
+    if (measurements.trim().isEmpty) {
+      return pw.SizedBox.shrink();
+    }
+    return pw.Container(
+      width: double.infinity,
+      padding: const pw.EdgeInsets.all(16),
+      decoration: pw.BoxDecoration(
+        color: lightBgColor,
+        borderRadius: pw.BorderRadius.circular(6),
+        border: pw.Border.all(color: borderCol, width: 0.8),
+      ),
+      child: pw.Column(
+        crossAxisAlignment: pw.CrossAxisAlignment.start,
+        children: [
+          pw.Row(
+            children: [
+              pw.Container(
+                width: 4,
+                height: 16,
+                color: primaryColor,
+              ),
+              pw.SizedBox(width: 8),
+              _createText(
+                'SITE MEASUREMENTS & SURVEY NOTES',
+                isBold: true,
+                fontSize: 11,
+                color: primaryColor,
+              ),
+            ],
+          ),
+          pw.Divider(thickness: 0.5, color: borderCol),
+          pw.SizedBox(height: 8),
+          _createText(
+            measurements,
+            fontSize: 10,
+            color: textDark,
+          ),
+        ],
+      ),
+    );
+  }
+
+  pw.Widget _buildSiteMeasurements(String? measurements) {
+    return _buildDedicatedMeasurementsSection(measurements ?? '');
   }
 
   pw.Widget _buildItemsTable(List<QuoteItem> items, Map<String, String> productSkus) {
@@ -1353,29 +1481,7 @@ class PdfService {
                   ),
                 ),
                 pw.SizedBox(height: 8),
-                pw.Container(
-                  width: double.infinity,
-                  padding: const pw.EdgeInsets.all(8),
-                  decoration: pw.BoxDecoration(
-                    color: lightBgColor,
-                    border: pw.Border(
-                      left: pw.BorderSide(color: textMuted, width: 3),
-                      top: pw.BorderSide(color: borderCol, width: 0.5),
-                      right: pw.BorderSide(color: borderCol, width: 0.5),
-                      bottom: pw.BorderSide(color: borderCol, width: 0.5),
-                    ),
-                  ),
-                  child: pw.Column(
-                    crossAxisAlignment: pw.CrossAxisAlignment.start,
-                    children: [
-                      _createText('TERMS & CONDITIONS', fontSize: 8.5, fontWeight: pw.FontWeight.bold, isBold: true, color: primaryColor),
-                      pw.SizedBox(height: 4),
-                      _createText('1. Valid for ${quote.validityDays} days from date.', fontSize: 7.5, color: textMuted),
-                      _createText('2. Materials remain property of Quickfix until paid.', fontSize: 7.5, color: textMuted),
-                      _createText('3. Warranty: 12 months on workmanship/materials.', fontSize: 7.5, color: textMuted),
-                    ],
-                  ),
-                ),
+                _buildTermsAndConditionsWidget(quote.terms),
               ],
             ),
           ),
@@ -1396,7 +1502,7 @@ class PdfService {
                   child: pw.Column(
                     crossAxisAlignment: pw.CrossAxisAlignment.end,
                     children: [
-                      _buildNewTotalRow('Subtotal:', quote.subtotal),
+                      _buildNewTotalRow('Subtotal:', quote.effectiveSubtotal),
                       if (quote.tax > 0)
                         _buildNewTotalRow('Tax (16%):', quote.tax),
                       if (quote.discount > 0)
@@ -1405,7 +1511,7 @@ class PdfService {
                         padding: const pw.EdgeInsets.symmetric(vertical: 4),
                         child: pw.Divider(thickness: 1, color: borderCol),
                       ),
-                      _buildNewTotalRow('Total:', quote.grandTotal, isGrandTotal: true),
+                      _buildNewTotalRow('Total:', quote.effectiveTotal, isGrandTotal: true),
                     ],
                   ),
                 ),
@@ -1506,6 +1612,8 @@ class PdfService {
                     ],
                   ),
                 ),
+                pw.SizedBox(height: 8),
+                _buildTermsAndConditionsWidget(invoice.terms),
               ],
             ),
           ),
@@ -1526,21 +1634,19 @@ class PdfService {
                   child: pw.Column(
                     crossAxisAlignment: pw.CrossAxisAlignment.end,
                     children: [
-                      if (invoice.subtotal > 0)
-                        _buildNewTotalRow('Subtotal:', invoice.subtotal),
+                      _buildNewTotalRow('Subtotal:', invoice.effectiveSubtotal),
                       if (invoice.tax > 0)
                         _buildNewTotalRow('Tax (16%):', invoice.tax),
                       if (invoice.discount > 0)
                         _buildNewTotalRow('Discount:', invoice.discount),
                       if (invoice.amountPaid > 0)
                         _buildNewTotalRow('Amount Paid:', invoice.amountPaid),
-                      if (invoice.balanceDue > 0)
-                        _buildNewTotalRow('Balance Due:', invoice.balanceDue),
+                      _buildNewTotalRow('Balance Due:', invoice.effectiveBalanceDue),
                       pw.Padding(
                         padding: const pw.EdgeInsets.symmetric(vertical: 4),
                         child: pw.Divider(thickness: 1, color: borderCol),
                       ),
-                      _buildNewTotalRow('Total:', invoice.total, isGrandTotal: true),
+                      _buildNewTotalRow('Total:', invoice.effectiveTotal, isGrandTotal: true),
                     ],
                   ),
                 ),
@@ -1576,6 +1682,41 @@ class PdfService {
             color: isGrandTotal ? primaryColor : textDark,
             isBold: isGrandTotal,
           ),
+        ],
+      ),
+    );
+  }
+
+  pw.Widget _buildTermsAndConditionsWidget(String? customTerms) {
+    final effectiveTerms = (customTerms != null && customTerms.trim().isNotEmpty)
+        ? customTerms.trim()
+        : Constants.defaultTermsAndConditions;
+
+    final lines = effectiveTerms
+        .split('\n')
+        .map((l) => l.trim())
+        .where((l) => l.isNotEmpty)
+        .toList();
+
+    return pw.Container(
+      width: double.infinity,
+      padding: const pw.EdgeInsets.all(8),
+      decoration: pw.BoxDecoration(
+        color: lightBgColor,
+        border: pw.Border(
+          left: pw.BorderSide(color: textMuted, width: 3),
+          top: pw.BorderSide(color: borderCol, width: 0.5),
+          right: pw.BorderSide(color: borderCol, width: 0.5),
+          bottom: pw.BorderSide(color: borderCol, width: 0.5),
+        ),
+      ),
+      child: pw.Column(
+        crossAxisAlignment: pw.CrossAxisAlignment.start,
+        children: [
+          _createText('TERMS & CONDITIONS', fontSize: 8.5, fontWeight: pw.FontWeight.bold, isBold: true, color: primaryColor),
+          pw.SizedBox(height: 4),
+          for (final line in lines)
+            _createText(line, fontSize: 7.5, color: textMuted),
         ],
       ),
     );

@@ -149,20 +149,26 @@ class _CustomersScreenState extends State<CustomersScreen>
                     )
                   : _filteredCustomers.isEmpty
                   ? _buildEmptyState()
-                  : RefreshIndicator(
-                      onRefresh: _loadCustomers,
-                      child: _isGridView
-                          ? _buildGridView()
-                          : SingleChildScrollView(
-                              padding: const EdgeInsets.all(16),
-                              child: SingleChildScrollView(
-                                scrollDirection: Axis.horizontal,
-                                child: SizedBox(
-                                  width: 1300,
-                                  child: _buildCustomerTable(),
+                  : LayoutBuilder(
+                      builder: (context, constraints) {
+                        final availableW = constraints.maxWidth - 32;
+                        final tableW = availableW > 1000 ? availableW : 1000.0;
+                        return RefreshIndicator(
+                          onRefresh: _loadCustomers,
+                          child: _isGridView
+                              ? _buildGridView()
+                              : SingleChildScrollView(
+                                  padding: const EdgeInsets.all(16),
+                                  child: SingleChildScrollView(
+                                    scrollDirection: Axis.horizontal,
+                                    child: SizedBox(
+                                      width: tableW,
+                                      child: _buildCustomerTable(),
+                                    ),
+                                  ),
                                 ),
-                              ),
-                            ),
+                        );
+                      },
                     ),
             ),
           ],

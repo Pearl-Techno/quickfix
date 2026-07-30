@@ -5,6 +5,7 @@ import '../../config/app_colors.dart';
 import '../../config/constants.dart';
 import '../../config/routes.dart';
 import '../../providers/quote_provider.dart';
+import '../../providers/invoice_provider.dart';
 import '../../providers/auth_provider.dart';
 import '../../models/quote.dart';
 import '../../widgets/custom_button.dart';
@@ -66,7 +67,7 @@ class _QuotesScreenState extends State<QuotesScreen>
     setState(() => _isLoading = true);
     final provider = context.read<QuoteProvider>();
     provider.clearAllFilters();
-    await provider.loadQuotes();
+    await provider.loadQuotes(forceRefresh: true);
     setState(() => _isLoading = false);
   }
 
@@ -229,6 +230,9 @@ class _QuotesScreenState extends State<QuotesScreen>
     if (!mounted) return;
 
     if (invoice != null) {
+      if (mounted) {
+        context.read<InvoiceProvider>().loadInvoices(forceRefresh: true);
+      }
       Helpers.showSuccess(context, 'Quote converted to invoice successfully');
       await _loadQuotes();
       if (mounted) {
@@ -521,7 +525,7 @@ class _QuotesScreenState extends State<QuotesScreen>
         opacity: _fadeAnimation,
         child: Column(
           children: [
-            _buildSearchAndFilterBar(),
+            _buildSearchAndFilterBar(provider),
             _buildStatsBar(displayedQuotes),
             Expanded(
               child: _isLoading || provider.isLoading
@@ -540,18 +544,24 @@ class _QuotesScreenState extends State<QuotesScreen>
                     )
                   : displayedQuotes.isEmpty
                   ? _buildEmptyState()
-                  : RefreshIndicator(
-                      onRefresh: _loadQuotes,
-                      child: SingleChildScrollView(
-                        padding: const EdgeInsets.all(16),
-                        child: SingleChildScrollView(
-                          scrollDirection: Axis.horizontal,
-                          child: SizedBox(
-                            width: 1300,
-                            child: _buildQuoteTable(authProvider, displayedQuotes),
+                  : LayoutBuilder(
+                      builder: (context, constraints) {
+                        final availableW = constraints.maxWidth - 32;
+                        final tableW = availableW > 1100 ? availableW : 1100.0;
+                        return RefreshIndicator(
+                          onRefresh: _loadQuotes,
+                          child: SingleChildScrollView(
+                            padding: const EdgeInsets.all(16),
+                            child: SingleChildScrollView(
+                              scrollDirection: Axis.horizontal,
+                              child: SizedBox(
+                                width: tableW,
+                                child: _buildQuoteTable(authProvider, displayedQuotes),
+                              ),
+                            ),
                           ),
-                        ),
-                      ),
+                        );
+                      },
                     ),
             ),
           ],
@@ -564,7 +574,7 @@ class _QuotesScreenState extends State<QuotesScreen>
   // SEARCH AND FILTER BAR
   // ============================================
 
-  Widget _buildSearchAndFilterBar() {
+  Widget _buildSearchAndFilterBar(QuoteProvider provider) {
     return Container(
       padding: const EdgeInsets.all(16),
       color: Colors.white,
@@ -640,6 +650,13 @@ class _QuotesScreenState extends State<QuotesScreen>
                 final status = _statusOptions[index];
                 final isSelected = status == _selectedStatus;
                 final statusColor = _getStatusColor(status);
+
+                final statusQuotes = status == 'All'
+                    ? provider.allQuotes
+                    : provider.allQuotes.where((q) => q.status == status).toList();
+                final statusCount = statusQuotes.length;
+                final statusValue = statusQuotes.fold(0.0, (sum, q) => sum + q.effectiveTotal);
+
                 return GestureDetector(
                   onTap: () {
                     setState(() {
@@ -650,7 +667,7 @@ class _QuotesScreenState extends State<QuotesScreen>
                   child: Container(
                     margin: const EdgeInsets.only(right: 8),
                     padding: const EdgeInsets.symmetric(
-                      horizontal: 16,
+                      horizontal: 14,
                       vertical: 6,
                     ),
                     decoration: BoxDecoration(
@@ -673,7 +690,7 @@ class _QuotesScreenState extends State<QuotesScreen>
                           const SizedBox(width: 4),
                         ],
                         Text(
-                          _getStatusDisplayName(status),
+                          '${_getStatusDisplayName(status)} ($statusCount • ${_formatCurrency(statusValue)})',
                           style: TextStyle(
                             color: isSelected ? Colors.white : AppColors.text,
                             fontSize: 12,
@@ -700,9 +717,28 @@ class _QuotesScreenState extends State<QuotesScreen>
 
   Widget _buildStatsBar(List<Quote> displayedQuotes) {
     final total = displayedQuotes.length;
-    final draftCount = displayedQuotes.where((q) => q.isDraft).length;
-    final sentCount = displayedQuotes.where((q) => q.isSent).length;
-    final approvedCount = displayedQuotes.where((q) => q.isApproved).length;
+    final totalAmount = displayedQuotes.fold(0.0, (sum, q) => sum + q.effectiveTotal);
+
+    final draftQuotes = displayedQuotes.where((q) => q.isDraft);
+    final draftCount = draftQuotes.length;
+    final draftValue = draftQuotes.fold(0.0, (sum, q) => sum + q.effectiveTotal);
+
+    final sentQuotes = displayedQuotes.where((q) => q.isSent);
+    final sentCount = sentQuotes.length;
+    final sentValue = sentQuotes.fold(0.0, (sum, q) => sum + q.effectiveTotal);
+
+    final approvedQuotes = displayedQuotes.where((q) => q.isApproved);
+    final approvedCount = approvedQuotes.length;
+    final approvedValue = approvedQuotes.fold(0.0, (sum, q) => sum + q.effectiveTotal);
+
+    final convertedQuotes = displayedQuotes.where((q) => q.isConverted);
+    final convertedCount = convertedQuotes.length;
+    final convertedValue = convertedQuotes.fold(0.0, (sum, q) => sum + q.effectiveTotal);
+
+    final rejectedQuotes = displayedQuotes.where((q) => q.isRejected);
+    final rejectedCount = rejectedQuotes.length;
+    final rejectedValue = rejectedQuotes.fold(0.0, (sum, q) => sum + q.effectiveTotal);
+
     final hasFilters =
         _selectedStatus != 'All' || _searchController.text.isNotEmpty;
 
@@ -712,39 +748,48 @@ class _QuotesScreenState extends State<QuotesScreen>
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          Row(
-            children: [
-              Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 10,
-                  vertical: 4,
-                ),
-                decoration: BoxDecoration(
-                  color: AppColors.primary.withValues(alpha: 0.08),
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: Text(
-                  '$total',
-                  style: TextStyle(
-                    fontSize: 14,
-                    fontWeight: FontWeight.bold,
-                    color: AppColors.primary,
+          Expanded(
+            child: SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 10,
+                      vertical: 4,
+                    ),
+                    decoration: BoxDecoration(
+                      color: AppColors.primary.withValues(alpha: 0.08),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Text(
+                      '$total (${_formatCurrency(totalAmount)})',
+                      style: const TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.bold,
+                        color: AppColors.primary,
+                      ),
+                    ),
                   ),
-                ),
+                  const SizedBox(width: 8),
+                  Text(
+                    'quotes found',
+                    style: TextStyle(fontSize: 13, color: AppColors.textLight),
+                  ),
+                  const SizedBox(width: 12),
+                  if (draftCount > 0)
+                    _buildStatChip('$draftCount draft (${_formatCurrency(draftValue)})', AppColors.draft),
+                  if (sentCount > 0)
+                    _buildStatChip('$sentCount sent (${_formatCurrency(sentValue)})', AppColors.sent),
+                  if (approvedCount > 0)
+                    _buildStatChip('$approvedCount approved (${_formatCurrency(approvedValue)})', AppColors.approved),
+                  if (convertedCount > 0)
+                    _buildStatChip('$convertedCount converted (${_formatCurrency(convertedValue)})', AppColors.converted),
+                  if (rejectedCount > 0)
+                    _buildStatChip('$rejectedCount rejected (${_formatCurrency(rejectedValue)})', AppColors.rejected),
+                ],
               ),
-              const SizedBox(width: 8),
-              Text(
-                'quotes found',
-                style: TextStyle(fontSize: 13, color: AppColors.textLight),
-              ),
-              const SizedBox(width: 12),
-              if (draftCount > 0)
-                _buildStatChip('$draftCount draft', AppColors.draft),
-              if (sentCount > 0)
-                _buildStatChip('$sentCount sent', AppColors.sent),
-              if (approvedCount > 0)
-                _buildStatChip('$approvedCount approved', AppColors.approved),
-            ],
+            ),
           ),
           if (hasFilters)
             GestureDetector(
@@ -991,7 +1036,7 @@ class _QuotesScreenState extends State<QuotesScreen>
                       Expanded(
                         flex: 3,
                         child: Text(
-                          _formatCurrency(quote.total),
+                          _formatCurrency(quote.effectiveTotal),
                           style: const TextStyle(
                             fontSize: 13,
                             fontWeight: FontWeight.bold,

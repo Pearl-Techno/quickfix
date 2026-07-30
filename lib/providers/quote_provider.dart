@@ -453,9 +453,12 @@ class QuoteProvider extends ChangeNotifier {
     List<QuoteItem>? items,
     String? scope,
     String? notes,
+    String? terms,
     String? siteMeasurements,
+    DateTime? expiryDate,
+    DateTime? dueDate,
     int validityDays = Constants.defaultQuoteValidityDays,
-    bool applyTax = true,
+    bool applyTax = false,
   }) async {
     _setLoading(true);
     _clearError();
@@ -493,7 +496,10 @@ class QuoteProvider extends ChangeNotifier {
         'validity_days': validityDays,
         'scope': scope,
         'notes': notes,
+        'terms': terms,
         'site_measurements': siteMeasurements,
+        'expiry_date': (expiryDate ?? dueDate)?.toIso8601String(),
+        'due_date': (expiryDate ?? dueDate)?.toIso8601String(),
       };
 
       final quote = await _databaseService.createQuote(data);
@@ -549,9 +555,12 @@ class QuoteProvider extends ChangeNotifier {
     List<QuoteItem>? items,
     String? scope,
     String? notes,
+    String? terms,
     String? siteMeasurements,
+    DateTime? expiryDate,
+    DateTime? dueDate,
     double? discount,
-    bool applyTax = true,
+    bool applyTax = false,
   }) async {
     _setLoading(true);
     _clearError();
@@ -584,7 +593,10 @@ class QuoteProvider extends ChangeNotifier {
         'discount': discount,
         'scope': scope,
         'notes': notes,
+        'terms': terms,
         'site_measurements': siteMeasurements,
+        'expiry_date': (expiryDate ?? dueDate)?.toIso8601String(),
+        'due_date': (expiryDate ?? dueDate)?.toIso8601String(),
         'updated_at': DateTime.now().toIso8601String(),
       };
 

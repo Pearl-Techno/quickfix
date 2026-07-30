@@ -421,8 +421,10 @@ class InvoiceProvider extends ChangeNotifier {
     List<QuoteItem>? items,
     String? scope,
     String? notes,
+    String? terms,
+    DateTime? dueDate,
     double? discount,
-    bool applyTax = true,
+    bool applyTax = false,
   }) async {
     _setLoading(true);
     _clearError();
@@ -449,10 +451,11 @@ class InvoiceProvider extends ChangeNotifier {
         'amount_paid': 0.0,
         'balance_due': grandTotal,
         'payment_status': Constants.invoiceStatusUnpaid,
-        'due_date': DateTime.now().add(const Duration(days: 14)).toIso8601String(),
+        'due_date': dueDate?.toIso8601String(),
         'issued_date': DateTime.now().toIso8601String(),
         'scope': scope,
         'notes': notes,
+        'terms': terms,
         'items': items,
       };
 

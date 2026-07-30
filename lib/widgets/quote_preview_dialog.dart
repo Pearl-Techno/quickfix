@@ -63,9 +63,20 @@ class _QuotePreviewDialogState extends State<QuotePreviewDialog>
     setState(() => _isExporting = true);
 
     try {
-      final subtotal = widget.quoteData['subtotal'] as double;
-      final tax = widget.quoteData['tax'] as double;
-      final total = widget.quoteData['total'] as double;
+      double subtotal = (widget.quoteData['subtotal'] as num?)?.toDouble() ?? 0.0;
+      double tax = (widget.quoteData['tax'] as num?)?.toDouble() ?? 0.0;
+      double total = (widget.quoteData['total'] as num?)?.toDouble() ?? 0.0;
+
+      if (subtotal <= 0 && items.isNotEmpty) {
+        subtotal = items.fold(0.0, (sum, item) => sum + item.total);
+      }
+      final bool applyTax = widget.quoteData['applyTax'] == true || tax > 0;
+      if (tax <= 0 && applyTax) {
+        tax = subtotal * Constants.taxRate;
+      }
+      if (total <= 0) {
+        total = subtotal + tax;
+      }
       final notes = widget.quoteData['notes'] as String?;
       final siteMeasurements = widget.quoteData['siteMeasurements'] as String?;
 
@@ -81,8 +92,10 @@ class _QuotePreviewDialogState extends State<QuotePreviewDialog>
         grandTotal: total,
         scope: widget.quoteData['scope'] as String?,
         notes: notes,
+        terms: widget.quoteData['terms'] as String?,
         siteMeasurements: siteMeasurements,
         createdAt: DateTime.now(),
+        expiryDate: widget.quoteData['expiryDate'] as DateTime?,
         customerName: customer.name,
         items: items,
       );
@@ -103,6 +116,10 @@ class _QuotePreviewDialogState extends State<QuotePreviewDialog>
           amountPaid: 0.0,
           balanceDue: total,
           paymentStatus: Constants.invoiceStatusUnpaid,
+          scope: widget.quoteData['scope'] as String?,
+          notes: notes,
+          terms: widget.quoteData['terms'] as String?,
+          dueDate: widget.quoteData['expiryDate'] as DateTime?,
           createdAt: DateTime.now(),
           customerName: customer.name,
         );
@@ -181,11 +198,21 @@ class _QuotePreviewDialogState extends State<QuotePreviewDialog>
     final customer = widget.quoteData['customer'] as Customer?;
     final rawItems = widget.quoteData['items'] as List?;
     final items = rawItems?.cast<QuoteItem>() ?? <QuoteItem>[];
-    final subtotal = widget.quoteData['subtotal'] as double;
-    final tax = widget.quoteData['tax'] as double;
-    final total = widget.quoteData['total'] as double;
+    double subtotal = (widget.quoteData['subtotal'] as num?)?.toDouble() ?? 0.0;
+    double tax = (widget.quoteData['tax'] as num?)?.toDouble() ?? 0.0;
+    double total = (widget.quoteData['total'] as num?)?.toDouble() ?? 0.0;
+
+    if (subtotal <= 0 && items.isNotEmpty) {
+      subtotal = items.fold(0.0, (sum, item) => sum + item.total);
+    }
+    final bool applyTax = widget.quoteData['applyTax'] == true || tax > 0;
+    if (tax <= 0 && applyTax) {
+      tax = subtotal * Constants.taxRate;
+    }
+    if (total <= 0) {
+      total = subtotal + tax;
+    }
     final notes = widget.quoteData['notes'] as String?;
-    final siteMeasurements = widget.quoteData['siteMeasurements'] as String?;
 
     final isComplete = customer != null && items.isNotEmpty;
 
@@ -228,19 +255,11 @@ class _QuotePreviewDialogState extends State<QuotePreviewDialog>
                              const SizedBox(height: 12),
                              _buildPreviewTotals(subtotal, tax, total),
                              _buildPreviewPreparedBy(context),
-                            if (notes != null && notes.isNotEmpty) ...[
-                              const SizedBox(height: 10),
-                              _buildPreviewNotes(notes, 'Notes'),
-                            ],
-                            if (siteMeasurements != null &&
-                                siteMeasurements.isNotEmpty) ...[
-                              const SizedBox(height: 10),
-                              _buildPreviewNotes(
-                                siteMeasurements,
-                                'Site Measurements',
-                              ),
-                            ],
-                          ],
+                             if (notes != null && notes.isNotEmpty) ...[
+                               const SizedBox(height: 10),
+                               _buildPreviewNotes(notes, 'Notes'),
+                             ],
+                           ],
                         ),
                       ),
                     ],

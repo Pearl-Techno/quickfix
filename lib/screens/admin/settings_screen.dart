@@ -855,6 +855,26 @@ class _SettingsScreenState extends State<SettingsScreen>
       content: Column(
         children: [
           SwitchListTile(
+            value: settingsProvider.vatEnabled,
+            title: const Text('VAT (16% Tax)'),
+            subtitle: Text(
+              settingsProvider.vatEnabled
+                  ? 'VAT (16%) is enabled for quotes and invoices'
+                  : 'VAT (16%) is disabled by default for quotes and invoices',
+            ),
+            secondary: Icon(
+              Icons.receipt_long_outlined,
+              color: settingsProvider.vatEnabled
+                  ? AppColors.primary
+                  : AppColors.textLight,
+            ),
+            onChanged: (value) {
+              settingsProvider.setVatEnabled(value);
+            },
+            contentPadding: EdgeInsets.zero,
+          ),
+          const Divider(),
+          SwitchListTile(
             value: settingsProvider.notificationsEnabled,
             title: const Text('Push Notifications'),
             subtitle: const Text(

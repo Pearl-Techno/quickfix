@@ -1,5 +1,6 @@
 // ignore_for_file: use_build_context_synchronously
 import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 import '../../config/app_colors.dart';
 import '../../config/constants.dart';
@@ -8,6 +9,7 @@ import '../../providers/customer_provider.dart';
 import '../../providers/product_provider.dart';
 import '../../providers/quote_provider.dart';
 import '../../providers/invoice_provider.dart';
+import '../../providers/settings_provider.dart';
 import '../../providers/auth_provider.dart';
 import '../../models/customer.dart';
 import '../../models/product.dart';
@@ -90,7 +92,7 @@ class _CreateQuoteScreenState extends State<CreateQuoteScreen>
   Product? _selectedProduct;
   String _itemType = Constants.itemTypeStock;
   List<Product> _filteredProducts = [];
-  bool _applyTax = true;
+  bool _applyTax = false;
   String _selectedSection = '';
   bool _isSubmitting = false;
   bool _useCustomPrice = false;
@@ -103,6 +105,8 @@ class _CreateQuoteScreenState extends State<CreateQuoteScreen>
   final _directClientAddressController = TextEditingController();
   final _directClientSiteLocationController = TextEditingController();
   final _scopeController = TextEditingController();
+  final _termsController = TextEditingController();
+  DateTime? _dueDate;
 
   final List<ExtendedQuoteItem> _items = [];
   final List<String> _sections = [];
@@ -147,6 +151,7 @@ class _CreateQuoteScreenState extends State<CreateQuoteScreen>
     _directClientAddressController.dispose();
     _directClientSiteLocationController.dispose();
     _scopeController.dispose();
+    _termsController.dispose();
     _furtherDescriptionController.dispose();
     _quantityController.dispose();
     _discountController.dispose();
@@ -164,6 +169,7 @@ class _CreateQuoteScreenState extends State<CreateQuoteScreen>
     await productProvider.loadProducts();
     if (!mounted) return;
     _filterProducts();
+    _applyTax = context.read<SettingsProvider>().vatEnabled;
 
     if (widget.quoteId != null) {
       final quoteProvider = context.read<QuoteProvider>();
@@ -182,7 +188,9 @@ class _CreateQuoteScreenState extends State<CreateQuoteScreen>
         );
         _scopeController.text = quote.scope ?? '';
         _notesController.text = quote.notes ?? '';
+        _termsController.text = quote.terms ?? '';
         _siteMeasurementsController.text = quote.siteMeasurements ?? '';
+        _dueDate = quote.expiryDate;
         _applyTax = quote.tax > 0;
 
         _items.clear();
@@ -198,19 +206,19 @@ class _CreateQuoteScreenState extends State<CreateQuoteScreen>
             }
           }
         }
-        for (final defaultSec in ['Materials', 'Labour', 'Transport']) {
+        for (final defaultSec in ['Materials', 'Labour', 'Other']) {
           if (!_sections.contains(defaultSec)) {
             _sections.add(defaultSec);
           }
         }
-        _selectedSection = _sections.contains('Materials') ? 'Materials' : _sections.first;
+        _selectedSection = '';
         _calculateTotals();
       }
     } else {
       // New quote
       _sections.clear();
-      _sections.addAll(['Materials', 'Labour', 'Transport']);
-      _selectedSection = 'Materials';
+      _sections.addAll(['Materials', 'Labour', 'Other']);
+      _selectedSection = '';
     }
   }
 
@@ -278,10 +286,7 @@ class _CreateQuoteScreenState extends State<CreateQuoteScreen>
       return;
     }
 
-    if (_selectedSection.isEmpty && _sections.isNotEmpty) {
-      Helpers.showError(context, 'Please select a section');
-      return;
-    }
+
 
     if (_itemType == Constants.itemTypeStock && _selectedProduct == null) {
       Helpers.showError(context, 'Please select a product');
@@ -344,6 +349,8 @@ class _CreateQuoteScreenState extends State<CreateQuoteScreen>
       }
     }
 
+    final effectiveSection = _selectedSection.trim().isNotEmpty ? _selectedSection : 'General';
+
     final item = ExtendedQuoteItem(
       id: Helpers.generateId(),
       quoteId: '',
@@ -354,16 +361,19 @@ class _CreateQuoteScreenState extends State<CreateQuoteScreen>
       unitPrice: unitPrice,
       discount: discount,
       total: subtotal - discount,
-      section: _selectedSection,
+      section: effectiveSection,
       isPriceEdited: isPriceEdited,
     );
 
     setState(() {
       _items.add(item);
+      if (!_sections.contains(effectiveSection)) {
+        _sections.add(effectiveSection);
+      }
       _calculateTotals();
     });
 
-    Helpers.showSuccess(context, 'Item added to $_selectedSection');
+    Helpers.showSuccess(context, 'Item added${_selectedSection.isNotEmpty ? ' to $_selectedSection' : ''}');
     setState(() {
       _selectedProduct = null;
       _quantityController.text = '1';
@@ -534,6 +544,10 @@ class _CreateQuoteScreenState extends State<CreateQuoteScreen>
         notes: _notesController.text.trim().isEmpty
             ? null
             : _notesController.text.trim(),
+        terms: _termsController.text.trim().isEmpty
+            ? null
+            : _termsController.text.trim(),
+        dueDate: _dueDate,
         applyTax: _applyTax,
       );
 
@@ -564,9 +578,13 @@ class _CreateQuoteScreenState extends State<CreateQuoteScreen>
         notes: _notesController.text.trim().isEmpty
             ? null
             : _notesController.text.trim(),
+        terms: _termsController.text.trim().isEmpty
+            ? null
+            : _termsController.text.trim(),
         siteMeasurements: _siteMeasurementsController.text.trim().isEmpty
             ? null
             : _siteMeasurementsController.text.trim(),
+        dueDate: _dueDate,
         applyTax: _applyTax,
       );
     } else {
@@ -580,9 +598,13 @@ class _CreateQuoteScreenState extends State<CreateQuoteScreen>
         notes: _notesController.text.trim().isEmpty
             ? null
             : _notesController.text.trim(),
+        terms: _termsController.text.trim().isEmpty
+            ? null
+            : _termsController.text.trim(),
         siteMeasurements: _siteMeasurementsController.text.trim().isEmpty
             ? null
             : _siteMeasurementsController.text.trim(),
+        dueDate: _dueDate,
         applyTax: _applyTax,
       );
     }
@@ -1281,7 +1303,7 @@ class _CreateQuoteScreenState extends State<CreateQuoteScreen>
         children: [
           if (_sections.isNotEmpty) ...[
             CustomDropdown<String>(
-              value: _selectedSection,
+              value: _selectedSection.isEmpty ? null : _selectedSection,
               items: _sections.map((section) {
                 final itemCount = _items
                     .where((item) => item.section == section)
@@ -1313,8 +1335,9 @@ class _CreateQuoteScreenState extends State<CreateQuoteScreen>
                   ),
                 );
               }).toList(),
-              label: 'Select Section *',
-              hint: 'Choose a section for items',
+              label: 'Select Section (Optional)',
+              isRequired: false,
+              hint: 'Choose a section for items (Optional)',
               onChanged: (value) {
                 if (value != null) {
                   setState(() {
@@ -1344,7 +1367,7 @@ class _CreateQuoteScreenState extends State<CreateQuoteScreen>
             children: [
               _buildTypeTab(Constants.itemTypeStock, 'Stock Item'),
               _buildTypeTab(Constants.itemTypeService, 'Labour'),
-              _buildTypeTab(Constants.itemTypeOutsourced, 'Transport / Other'),
+              _buildTypeTab(Constants.itemTypeOutsourced, 'Other'),
             ],
           ),
           const SizedBox(height: 16),
@@ -1378,10 +1401,10 @@ class _CreateQuoteScreenState extends State<CreateQuoteScreen>
             // Custom item description
             CustomTextField(
               controller: _customDescriptionController,
-              label: _itemType == Constants.itemTypeService ? 'Service / Labour Description *' : 'Transport / Item Description *',
-              hint: _itemType == Constants.itemTypeService ? 'e.g., General plumbing installation' : 'e.g., Transport to site',
+              label: _itemType == Constants.itemTypeService ? 'Service / Labour Description *' : 'Item / Service Description *',
+              hint: _itemType == Constants.itemTypeService ? 'e.g., General plumbing installation' : 'e.g., Miscellaneous service / supply',
               prefixIcon: Icon(
-                _itemType == Constants.itemTypeService ? Icons.design_services : Icons.local_shipping,
+                _itemType == Constants.itemTypeService ? Icons.design_services : Icons.miscellaneous_services,
                 size: 18,
               ),
             ),
@@ -1977,7 +2000,10 @@ class _CreateQuoteScreenState extends State<CreateQuoteScreen>
       tag: 'Optional',
       tagColor: AppColors.warning,
       child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          _buildDueDateField(),
+          const SizedBox(height: 16),
           CustomTextField(
             controller: _scopeController,
             label: 'Scope of Works / Service',
@@ -1995,6 +2021,14 @@ class _CreateQuoteScreenState extends State<CreateQuoteScreen>
           ),
           const SizedBox(height: 16),
           CustomTextField(
+            controller: _termsController,
+            label: 'Terms & Conditions (Optional)',
+            hint: 'Type custom terms & conditions or leave blank to use system defaults',
+            maxLines: 3,
+            prefixIcon: const Icon(Icons.gavel, size: 20),
+          ),
+          const SizedBox(height: 16),
+          CustomTextField(
             controller: _siteMeasurementsController,
             label: 'Site Measurements',
             hint: 'Enter site measurements (optional)',
@@ -2003,6 +2037,78 @@ class _CreateQuoteScreenState extends State<CreateQuoteScreen>
           ),
         ],
       ),
+    );
+  }
+
+  Widget _buildDueDateField() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Text(
+              widget.isInvoice ? 'Due Date (Optional)' : 'Valid Until / Due Date (Optional)',
+              style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: AppColors.text),
+            ),
+            if (_dueDate != null)
+              GestureDetector(
+                onTap: () {
+                  setState(() {
+                    _dueDate = null;
+                  });
+                },
+                child: Text(
+                  'Clear (No due date)',
+                  style: TextStyle(fontSize: 11, color: AppColors.error, fontWeight: FontWeight.w600),
+                ),
+              ),
+          ],
+        ),
+        const SizedBox(height: 6),
+        InkWell(
+          onTap: () async {
+            final picked = await showDatePicker(
+              context: context,
+              initialDate: _dueDate ?? DateTime.now().add(const Duration(days: 14)),
+              firstDate: DateTime.now().subtract(const Duration(days: 30)),
+              lastDate: DateTime.now().add(const Duration(days: 365)),
+            );
+            if (picked != null) {
+              setState(() {
+                _dueDate = picked;
+              });
+            }
+          },
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+            decoration: BoxDecoration(
+              color: AppColors.background,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: AppColors.border),
+            ),
+            child: Row(
+              children: [
+                const Icon(Icons.calendar_today, size: 20, color: AppColors.primary),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    _dueDate != null
+                        ? DateFormat('EEE, MMM d, yyyy').format(_dueDate!)
+                        : 'No due date set (Click to select date)',
+                    style: TextStyle(
+                      fontSize: 13,
+                      color: _dueDate != null ? AppColors.text : AppColors.textLight,
+                      fontWeight: _dueDate != null ? FontWeight.w600 : FontWeight.normal,
+                    ),
+                  ),
+                ),
+                const Icon(Icons.arrow_drop_down, color: AppColors.textLight),
+              ],
+            ),
+          ),
+        ),
+      ],
     );
   }
 

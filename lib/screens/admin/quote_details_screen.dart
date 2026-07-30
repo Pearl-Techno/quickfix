@@ -7,6 +7,7 @@ import 'package:path_provider/path_provider.dart';
 import '../../config/app_colors.dart';
 import '../../config/constants.dart';
 import '../../providers/quote_provider.dart';
+import '../../providers/invoice_provider.dart';
 import '../../providers/customer_provider.dart';
 import '../../models/quote.dart';
 import '../../models/quote_item.dart';
@@ -122,6 +123,9 @@ class _QuoteDetailsScreenState extends State<QuoteDetailsScreen>
     if (!mounted) return;
 
     if (invoice != null) {
+      if (mounted) {
+        context.read<InvoiceProvider>().loadInvoices(forceRefresh: true);
+      }
       Helpers.showSuccess(context, 'Invoice created successfully');
       await _loadQuote();
       if (mounted) {
@@ -208,6 +212,41 @@ class _QuoteDetailsScreenState extends State<QuoteDetailsScreen>
       setState(() => _isExporting = false);
       if (mounted) {
         Helpers.showError(context, 'Failed to share quote: $e');
+      }
+    }
+  }
+
+  Future<void> _exportMeasurementsPDF() async {
+    if (_quote == null || _customer == null) return;
+
+    setState(() => _isExporting = true);
+
+    try {
+      final pdfService = PdfService();
+      final file = await pdfService.generateSiteMeasurementPdf(
+        quote: _quote!,
+        customer: _customer!,
+        preparedBy: _preparedByName,
+      );
+
+      setState(() => _isExporting = false);
+
+      if (!mounted) return;
+
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (context) => QuotePreviewPage(
+            pdfFile: file,
+            quote: _quote!,
+            customer: _customer!,
+          ),
+        ),
+      );
+    } catch (e) {
+      setState(() => _isExporting = false);
+      if (mounted) {
+        Helpers.showError(context, 'Failed to generate Measurement PDF: $e');
       }
     }
   }
@@ -342,11 +381,15 @@ class _QuoteDetailsScreenState extends State<QuoteDetailsScreen>
                 _buildScopeCard(quote),
               ],
               const SizedBox(height: 16),
+              _buildSiteMeasurementsCard(quote),
+              const SizedBox(height: 16),
               _buildItemsSection(quote, items),
               const SizedBox(height: 16),
               _buildTotalsCard(quote),
-              if (quote.notes != null || quote.siteMeasurements != null)
+              if (quote.notes != null && quote.notes!.isNotEmpty) ...[
+                const SizedBox(height: 16),
                 _buildNotesCard(quote),
+              ],
               const SizedBox(height: 16),
               _buildPreparedBySection(),
               const SizedBox(height: 16),
@@ -883,7 +926,7 @@ class _QuoteDetailsScreenState extends State<QuoteDetailsScreen>
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.end,
         children: [
-          _buildTotalsRow('Subtotal', _formatCurrency(quote.subtotal)),
+          _buildTotalsRow('Subtotal', _formatCurrency(quote.effectiveSubtotal)),
           if (quote.tax > 0) ...[
             const SizedBox(height: 4),
             _buildTotalsRow(
@@ -896,12 +939,259 @@ class _QuoteDetailsScreenState extends State<QuoteDetailsScreen>
           const Divider(height: 20),
           _buildTotalsRow(
             'Total',
-            _formatCurrency(quote.grandTotal),
+            _formatCurrency(quote.effectiveTotal),
             isBold: true,
             isLarge: true,
           ),
         ],
       ),
+    );
+  }
+
+  Widget _buildSiteMeasurementsCard(Quote quote) {
+    final hasMeasurements = quote.hasSiteMeasurements;
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(16),
+      decoration: _cardDecoration(),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Expanded(
+                child: Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(6),
+                      decoration: BoxDecoration(
+                        color: AppColors.info.withValues(alpha: 0.1),
+                        borderRadius: BorderRadius.circular(6),
+                      ),
+                      child: const Icon(
+                        Icons.straighten,
+                        size: 18,
+                        color: AppColors.info,
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    const Expanded(
+                      child: Text(
+                        'Site Measurements & Survey',
+                        style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              if (hasMeasurements) ...[
+                InkWell(
+                  onTap: _exportMeasurementsPDF,
+                  borderRadius: BorderRadius.circular(8),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                    decoration: BoxDecoration(
+                      color: AppColors.primary.withValues(alpha: 0.1),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: const Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(Icons.picture_as_pdf, size: 14, color: AppColors.primary),
+                        SizedBox(width: 4),
+                        Text(
+                          'Separate PDF',
+                          style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w600,
+                            color: AppColors.primary,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+              ],
+              InkWell(
+                onTap: () => _showEditMeasurementsDialog(quote),
+                borderRadius: BorderRadius.circular(8),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                  decoration: BoxDecoration(
+                    color: AppColors.info.withValues(alpha: 0.1),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(hasMeasurements ? Icons.edit : Icons.add, size: 14, color: AppColors.info),
+                      const SizedBox(width: 4),
+                      Text(
+                        hasMeasurements ? 'Edit' : 'Add',
+                        style: const TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                          color: AppColors.info,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const Divider(height: 20),
+          if (hasMeasurements)
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: AppColors.info.withValues(alpha: 0.05),
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(
+                  color: AppColors.info.withValues(alpha: 0.2),
+                ),
+              ),
+              child: SelectableText(
+                quote.siteMeasurements!,
+                style: const TextStyle(
+                  fontSize: 14,
+                  height: 1.4,
+                  color: AppColors.text,
+                ),
+              ),
+            )
+          else
+            Row(
+              children: [
+                Icon(
+                  Icons.info_outline,
+                  size: 16,
+                  color: AppColors.textLight.withValues(alpha: 0.7),
+                ),
+                const SizedBox(width: 8),
+                const Text(
+                  'No site measurements recorded for this quote yet.',
+                  style: TextStyle(fontSize: 13, color: AppColors.textLight),
+                ),
+              ],
+            ),
+        ],
+      ),
+    );
+  }
+
+  void _showEditMeasurementsDialog(Quote quote) {
+    final controller = TextEditingController(text: quote.siteMeasurements ?? '');
+    final quoteProvider = context.read<QuoteProvider>();
+    bool isSaving = false;
+
+    showDialog(
+      context: context,
+      builder: (dialogContext) {
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            return AlertDialog(
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(16),
+              ),
+              title: Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(6),
+                    decoration: BoxDecoration(
+                      color: AppColors.info.withValues(alpha: 0.1),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: const Icon(
+                      Icons.straighten,
+                      color: AppColors.info,
+                      size: 20,
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  const Text(
+                    'Site Measurements',
+                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
+                  ),
+                ],
+              ),
+              content: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'Record site dimensions, pipe lengths, wiring specs, or survey notes for this quote:',
+                      style: TextStyle(fontSize: 13, color: AppColors.textLight),
+                    ),
+                    const SizedBox(height: 12),
+                    TextField(
+                      controller: controller,
+                      maxLines: 5,
+                      decoration: InputDecoration(
+                        hintText: 'e.g. Bathroom 2.5m x 3.0m, 15m 1/2 PPR pipe required...',
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        filled: true,
+                        fillColor: AppColors.background,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: isSaving ? null : () => Navigator.pop(dialogContext),
+                  child: const Text('Cancel'),
+                ),
+                ElevatedButton.icon(
+                  onPressed: isSaving
+                      ? null
+                      : () async {
+                          setDialogState(() => isSaving = true);
+                          final text = controller.text.trim();
+                          final updated = await quoteProvider.updateQuote(
+                            quoteId: quote.id,
+                            siteMeasurements: text.isEmpty ? null : text,
+                          );
+                          if (dialogContext.mounted) {
+                            Navigator.pop(dialogContext);
+                          }
+                          if (updated != null && mounted) {
+                            Helpers.showSuccess(this.context, 'Site measurements updated');
+                            _loadQuote();
+                          }
+                        },
+                  icon: isSaving
+                      ? const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: Colors.white,
+                          ),
+                        )
+                      : const Icon(Icons.save, size: 18),
+                  label: const Text('Save Measurements'),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AppColors.info,
+                    foregroundColor: Colors.white,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                  ),
+                ),
+              ],
+            );
+          },
+        );
+      },
     );
   }
 
@@ -936,31 +1226,6 @@ class _QuoteDetailsScreenState extends State<QuoteDetailsScreen>
           const Divider(height: 20),
           if (quote.notes != null) ...[
             Text(quote.notes!, style: const TextStyle(fontSize: 14)),
-          ],
-          if (quote.siteMeasurements != null) ...[
-            if (quote.notes != null) const SizedBox(height: 12),
-            Container(
-              padding: const EdgeInsets.all(10),
-              decoration: BoxDecoration(
-                color: AppColors.info.withValues(alpha: 0.05),
-                borderRadius: BorderRadius.circular(8),
-                border: Border.all(
-                  color: AppColors.info.withValues(alpha: 0.2),
-                ),
-              ),
-              child: Row(
-                children: [
-                  const Icon(Icons.straighten, size: 16, color: AppColors.info),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      'Site Measurements: ${quote.siteMeasurements}',
-                      style: TextStyle(fontSize: 13, color: AppColors.info),
-                    ),
-                  ),
-                ],
-              ),
-            ),
           ],
         ],
       ),

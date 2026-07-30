@@ -56,7 +56,7 @@ class _ProductsScreenState extends State<ProductsScreen>
     setState(() => _isLoading = true);
     final provider = context.read<ProductProvider>();
     provider.clearAllFilters();
-    await provider.loadProducts();
+    await provider.loadProducts(forceRefresh: true);
     _filterProducts();
     setState(() => _isLoading = false);
   }
@@ -65,7 +65,14 @@ class _ProductsScreenState extends State<ProductsScreen>
     final provider = context.read<ProductProvider>();
     final query = _searchController.text;
     provider.searchProducts(query);
-    var filtered = provider.products;
+    setState(() {
+      _filteredProducts = _getFilteredProducts(provider.allProducts);
+    });
+  }
+
+  List<Product> _getFilteredProducts(List<Product> products) {
+    final query = _searchController.text.toLowerCase().trim();
+    var filtered = products;
 
     if (_selectedCategory != 'All') {
       filtered = filtered
@@ -73,9 +80,18 @@ class _ProductsScreenState extends State<ProductsScreen>
           .toList();
     }
 
-    setState(() {
-      _filteredProducts = filtered;
-    });
+    if (query.isNotEmpty) {
+      filtered = filtered.where((product) {
+        return product.name.toLowerCase().contains(query) ||
+            product.category.toLowerCase().contains(query) ||
+            (product.description?.toLowerCase().contains(query) ?? false) ||
+            (product.sku?.toLowerCase().contains(query) ?? false) ||
+            (product.brand?.toLowerCase().contains(query) ?? false) ||
+            (product.supplier?.toLowerCase().contains(query) ?? false);
+      }).toList();
+    }
+
+    return filtered;
   }
 
   void _editProduct(Product product) {
@@ -131,6 +147,7 @@ class _ProductsScreenState extends State<ProductsScreen>
   Widget build(BuildContext context) {
     final provider = context.watch<ProductProvider>();
     final categories = ['All', ...provider.getCategories()];
+    _filteredProducts = _getFilteredProducts(provider.allProducts);
 
     // Calculate stats
     final totalProducts = provider.products.length;
@@ -158,7 +175,7 @@ class _ProductsScreenState extends State<ProductsScreen>
           IconButton(
             icon: const Icon(Icons.add),
             onPressed: () {
-              Navigator.pushNamed(context, AppRoutes.addProduct);
+              Navigator.pushNamed(context, AppRoutes.addProduct).then((_) => _loadProducts());
             },
             tooltip: 'Add Product',
           ),
@@ -197,18 +214,24 @@ class _ProductsScreenState extends State<ProductsScreen>
                     )
                   : _filteredProducts.isEmpty
                   ? _buildEmptyState()
-                  : RefreshIndicator(
-                      onRefresh: _loadProducts,
-                      child: SingleChildScrollView(
-                        padding: const EdgeInsets.all(16),
-                        child: SingleChildScrollView(
-                          scrollDirection: Axis.horizontal,
-                          child: SizedBox(
-                            width: 1300,
-                            child: _buildProductTable(),
+                  : LayoutBuilder(
+                      builder: (context, constraints) {
+                        final availableW = constraints.maxWidth - 32;
+                        final tableW = availableW > 1100 ? availableW : 1100.0;
+                        return RefreshIndicator(
+                          onRefresh: _loadProducts,
+                          child: SingleChildScrollView(
+                            padding: const EdgeInsets.all(16),
+                            child: SingleChildScrollView(
+                              scrollDirection: Axis.horizontal,
+                              child: SizedBox(
+                                width: tableW,
+                                child: _buildProductTable(),
+                              ),
+                            ),
                           ),
-                        ),
-                      ),
+                        );
+                      },
                     ),
             ),
           ],
@@ -555,7 +578,9 @@ class _ProductsScreenState extends State<ProductsScreen>
                 Expanded(
                   flex: 2,
                   child: _buildCell(
-                    product.id.substring(0, 8).toUpperCase(),
+                    (product.sku != null && product.sku!.isNotEmpty)
+                        ? product.sku!
+                        : product.displaySku,
                     color: AppColors.textLight,
                   ),
                 ),
@@ -787,7 +812,7 @@ class _ProductsScreenState extends State<ProductsScreen>
           CustomButton(
             text: 'Add Product',
             onPressed: () {
-              Navigator.pushNamed(context, AppRoutes.addProduct);
+              Navigator.pushNamed(context, AppRoutes.addProduct).then((_) => _loadProducts());
             },
             icon: Icons.add,
             variant: ButtonVariant.primary,
@@ -831,15 +856,7 @@ class _EditProductDialogState extends State<EditProductDialog> {
   late TextEditingController _minStockController;
   late String _selectedCategory;
 
-  final List<String> _categories = [
-    'Pipes',
-    'Fittings',
-    'Valves',
-    'Meters',
-    'Tools',
-    'Accessories',
-    'Other',
-  ];
+  late List<String> _categories;
 
   @override
   void initState() {
@@ -858,6 +875,23 @@ class _EditProductDialogState extends State<EditProductDialog> {
       text: widget.product.minStock.toString(),
     );
     _selectedCategory = widget.product.category;
+
+    final defaultCategories = [
+      'Pipes',
+      'Fittings',
+      'Valves',
+      'Meters',
+      'Tools',
+      'Accessories',
+      'Other',
+    ];
+    final providerCategories = context.read<ProductProvider>().getCategories();
+    final categoriesSet = <String>{
+      ...defaultCategories,
+      ...providerCategories,
+      if (_selectedCategory.isNotEmpty) _selectedCategory,
+    };
+    _categories = categoriesSet.toList();
   }
 
   @override
@@ -1108,6 +1142,12 @@ class _EditProductDialogState extends State<EditProductDialog> {
     required String hint,
     required ValueChanged<String?> onChanged,
   }) {
+    final uniqueItems = items.toSet().toList();
+    if (value.isNotEmpty && !uniqueItems.contains(value)) {
+      uniqueItems.add(value);
+    }
+    final effectiveValue = uniqueItems.contains(value) ? value : null;
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -1121,9 +1161,9 @@ class _EditProductDialogState extends State<EditProductDialog> {
         ),
         const SizedBox(height: 4),
         DropdownButtonFormField<String>(
-          initialValue: value,
+          initialValue: effectiveValue,
           hint: Text(hint),
-          items: items.map((item) {
+          items: uniqueItems.map((item) {
             return DropdownMenuItem<String>(value: item, child: Text(item));
           }).toList(),
           onChanged: onChanged,

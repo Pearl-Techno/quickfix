@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:printing/printing.dart';
 import '../../config/app_colors.dart';
 import '../../providers/customer_provider.dart';
 import '../../providers/quote_provider.dart';
@@ -9,11 +10,14 @@ import '../../widgets/custom_button.dart';
 import '../../widgets/custom_textfield.dart';
 import '../../widgets/custom_dropdown.dart';
 import '../../widgets/sidebar_menu.dart';
+import '../../services/pdf_service.dart';
 import '../../utils/helpers.dart';
 import '../../utils/formatters.dart';
 
 class SiteMeasurements extends StatefulWidget {
-  const SiteMeasurements({super.key});
+  final String? initialQuoteId;
+
+  const SiteMeasurements({super.key, this.initialQuoteId});
 
   @override
   State<SiteMeasurements> createState() => _SiteMeasurementsState();
@@ -24,43 +28,57 @@ class _SiteMeasurementsState extends State<SiteMeasurements>
   final _formKey = GlobalKey<FormState>();
   final _measurementsController = TextEditingController();
   final _notesController = TextEditingController();
+  final _searchController = TextEditingController();
 
+  late TabController _tabController;
   Customer? _selectedCustomer;
   Quote? _selectedQuote;
   List<Quote> _customerQuotes = [];
   bool _isSubmitting = false;
-  late AnimationController _animationController;
-  late Animation<double> _fadeAnimation;
+  bool _isLoading = false;
+  String _searchQuery = '';
 
   @override
   void initState() {
     super.initState();
+    _tabController = TabController(length: 2, vsync: this);
     _loadData();
-    _animationController = AnimationController(
-      duration: const Duration(milliseconds: 600),
-      vsync: this,
-    );
-    _fadeAnimation = Tween<double>(begin: 0.0, end: 1.0).animate(
-      CurvedAnimation(parent: _animationController, curve: Curves.easeIn),
-    );
-    _animationController.forward();
   }
 
   @override
   void dispose() {
+    _tabController.dispose();
     _measurementsController.dispose();
     _notesController.dispose();
-    _animationController.dispose();
+    _searchController.dispose();
     super.dispose();
   }
 
   Future<void> _loadData() async {
+    setState(() => _isLoading = true);
     final customerProvider = context.read<CustomerProvider>();
     final quoteProvider = context.read<QuoteProvider>();
+
     await Future.wait([
       customerProvider.loadCustomers(),
       quoteProvider.loadQuotes(),
     ]);
+
+    if (widget.initialQuoteId != null) {
+      final quote = quoteProvider.quotes.firstWhere(
+        (q) => q.id == widget.initialQuoteId,
+        orElse: () => Quote.empty(),
+      );
+      if (quote.id.isNotEmpty) {
+        final customer = customerProvider.customers.firstWhere(
+          (c) => c.id == quote.customerId,
+          orElse: () => Customer(id: '', name: 'Customer'),
+        );
+        _selectQuoteForEdit(quote, customer);
+      }
+    }
+
+    setState(() => _isLoading = false);
   }
 
   Future<void> _loadCustomerQuotes(String customerId) async {
@@ -72,6 +90,25 @@ class _SiteMeasurementsState extends State<SiteMeasurements>
           .toList();
       _selectedQuote = null;
     });
+  }
+
+  void _selectQuoteForEdit(Quote quote, Customer? customer) {
+    final customerProvider = context.read<CustomerProvider>();
+    final cust = customer ??
+        customerProvider.customers.firstWhere(
+          (c) => c.id == quote.customerId,
+          orElse: () => Customer(id: quote.customerId, name: quote.customerName ?? 'Customer'),
+        );
+
+    setState(() {
+      _selectedCustomer = cust;
+      _loadCustomerQuotes(cust.id);
+      _selectedQuote = quote;
+      _measurementsController.text = quote.siteMeasurements ?? '';
+      _notesController.text = quote.notes ?? '';
+    });
+
+    _tabController.animateTo(1);
   }
 
   Future<void> _saveMeasurements() async {
@@ -98,13 +135,41 @@ class _SiteMeasurementsState extends State<SiteMeasurements>
     if (!mounted) return;
 
     if (updated != null) {
-      Helpers.showSuccess(context, 'Measurements saved successfully');
-      Navigator.pop(context, true);
+      Helpers.showSuccess(context, 'Site measurements saved successfully');
+      _loadData();
+      _tabController.animateTo(0);
     } else {
       Helpers.showError(
         context,
         quoteProvider.errorMessage ?? 'Failed to save measurements',
       );
+    }
+  }
+
+  Future<void> _exportMeasurementPDF(Quote quote) async {
+    final customerProvider = context.read<CustomerProvider>();
+    final customer = customerProvider.customers.firstWhere(
+      (c) => c.id == quote.customerId,
+      orElse: () => Customer(id: quote.customerId, name: quote.customerName ?? 'Customer'),
+    );
+
+    try {
+      final pdfService = PdfService();
+      final file = await pdfService.generateSiteMeasurementPdf(
+        quote: quote,
+        customer: customer,
+      );
+
+      if (!mounted) return;
+
+      await Printing.layoutPdf(
+        onLayout: (format) async => file.readAsBytes(),
+        name: 'site_measurements_${quote.quoteNumber}',
+      );
+    } catch (e) {
+      if (mounted) {
+        Helpers.showError(context, 'Failed to generate PDF: $e');
+      }
     }
   }
 
@@ -118,69 +183,374 @@ class _SiteMeasurementsState extends State<SiteMeasurements>
           style: TextStyle(fontWeight: FontWeight.w600),
         ),
         elevation: 0,
-        actions: [
-          ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 80),
-            child: TextButton(
-              onPressed: _isSubmitting ? null : _saveMeasurements,
-              style: TextButton.styleFrom(
-                foregroundColor: Colors.white,
-                padding: const EdgeInsets.symmetric(horizontal: 4),
-              ),
-              child: _isSubmitting
-                  ? const SizedBox(
-                      width: 20,
-                      height: 20,
-                      child: CircularProgressIndicator(
-                        strokeWidth: 2,
-                        color: Colors.white,
-                      ),
-                    )
-                  : const Text(
-                      'Save',
-                      style: TextStyle(
-                        fontWeight: FontWeight.w600,
-                        fontSize: 16,
-                      ),
-                    ),
+        bottom: TabBar(
+          controller: _tabController,
+          indicatorColor: Colors.white,
+          indicatorWeight: 3,
+          tabs: const [
+            Tab(
+              icon: Icon(Icons.rule_folder_outlined),
+              text: 'Recorded Measurements',
             ),
-          ),
+            Tab(
+              icon: Icon(Icons.edit_document),
+              text: 'Record / Edit Measurement',
+            ),
+          ],
+        ),
+      ),
+      drawer: const SidebarMenu(selectedIndex: 6),
+      body: TabBarView(
+        controller: _tabController,
+        children: [
+          _buildRecordedMeasurementsTab(),
+          _buildRecordEditFormTab(),
         ],
       ),
-      drawer: const SidebarMenu(
-        selectedIndex: 6,
-      ),
-      body: FadeTransition(
-        opacity: _fadeAnimation,
-        child: SingleChildScrollView(
-          physics: const BouncingScrollPhysics(),
-          padding: const EdgeInsets.all(16),
-          child: Form(
-            key: _formKey,
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                _buildHeader(),
-                const SizedBox(height: 16),
-                LayoutBuilder(
-                  builder: (context, constraints) {
-                    if (constraints.maxWidth > 900) {
-                      return _buildWideLayout();
-                    } else {
-                      return _buildNarrowLayout();
-                    }
-                  },
+    );
+  }
+
+  // ============================================
+  // TAB 1: RECORDED MEASUREMENTS LIST
+  // ============================================
+
+  Widget _buildRecordedMeasurementsTab() {
+    final quoteProvider = context.watch<QuoteProvider>();
+    final customerProvider = context.watch<CustomerProvider>();
+
+    final quotesWithMeasurements = quoteProvider.quotes
+        .where((q) => q.hasSiteMeasurements)
+        .where((q) {
+          if (_searchQuery.isEmpty) return true;
+          final query = _searchQuery.toLowerCase();
+          final qNum = q.quoteNumber.toLowerCase();
+          final cName = (q.customerName ?? '').toLowerCase();
+          final mText = (q.siteMeasurements ?? '').toLowerCase();
+          return qNum.contains(query) || cName.contains(query) || mText.contains(query);
+        })
+        .toList();
+
+    return RefreshIndicator(
+      onRefresh: _loadData,
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.all(16),
+        physics: const AlwaysScrollableScrollPhysics(),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            _buildMetricsHeader(quoteProvider.quotes),
+            const SizedBox(height: 16),
+            _buildSearchAndFilterBar(),
+            const SizedBox(height: 16),
+            if (_isLoading)
+              const Center(
+                child: Padding(
+                  padding: EdgeInsets.all(32),
+                  child: CircularProgressIndicator(),
                 ),
-                const SizedBox(height: 20),
-              ],
-            ),
-          ),
+              )
+            else if (quotesWithMeasurements.isEmpty)
+              _buildEmptyMeasurementsState()
+            else
+              Column(
+                children: quotesWithMeasurements.map((quote) {
+                  final customer = customerProvider.customers.firstWhere(
+                    (c) => c.id == quote.customerId,
+                    orElse: () => Customer(id: quote.customerId, name: quote.customerName ?? 'Customer'),
+                  );
+                  return _buildMeasurementCard(quote, customer);
+                }).toList(),
+              ),
+          ],
         ),
       ),
     );
   }
 
-  Widget _buildHeader() {
+  Widget _buildMetricsHeader(List<Quote> allQuotes) {
+    final recordedCount = allQuotes.where((q) => q.hasSiteMeasurements).length;
+    final totalQuotesCount = allQuotes.length;
+
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            AppColors.info.withValues(alpha: 0.12),
+            AppColors.info.withValues(alpha: 0.03),
+          ],
+        ),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: AppColors.info.withValues(alpha: 0.2)),
+      ),
+      child: Row(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: AppColors.info.withValues(alpha: 0.1),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: const Icon(
+              Icons.straighten,
+              color: AppColors.info,
+              size: 28,
+            ),
+          ),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Site Surveys & Measurements Dashboard',
+                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  '$recordedCount of $totalQuotesCount quotations have site measurements attached.',
+                  style: const TextStyle(fontSize: 13, color: AppColors.textLight),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSearchAndFilterBar() {
+    return TextField(
+      controller: _searchController,
+      onChanged: (value) {
+        setState(() {
+          _searchQuery = value.trim();
+        });
+      },
+      decoration: InputDecoration(
+        hintText: 'Search site measurements by customer, quote #, or text...',
+        prefixIcon: const Icon(Icons.search, color: AppColors.textLight),
+        suffixIcon: _searchQuery.isNotEmpty
+            ? IconButton(
+                icon: const Icon(Icons.clear, color: AppColors.textLight),
+                onPressed: () {
+                  _searchController.clear();
+                  setState(() {
+                    _searchQuery = '';
+                  });
+                },
+              )
+            : null,
+        filled: true,
+        fillColor: Colors.white,
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+          borderSide: BorderSide(color: AppColors.border.withValues(alpha: 0.5)),
+        ),
+        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      ),
+    );
+  }
+
+  Widget _buildEmptyMeasurementsState() {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(32),
+      decoration: _cardDecoration(),
+      child: Column(
+        children: [
+          Icon(Icons.straighten_outlined, size: 64, color: AppColors.textLight.withValues(alpha: 0.5)),
+          const SizedBox(height: 16),
+          const Text(
+            'No Site Measurements Found',
+            style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+          ),
+          const SizedBox(height: 8),
+          const Text(
+            'There are no recorded site measurements matching your search.',
+            style: TextStyle(color: AppColors.textLight, fontSize: 13),
+            textAlign: TextAlign.center,
+          ),
+          const SizedBox(height: 20),
+          ElevatedButton.icon(
+            onPressed: () => _tabController.animateTo(1),
+            icon: const Icon(Icons.add),
+            label: const Text('Record New Measurements'),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppColors.primary,
+              foregroundColor: Colors.white,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(10),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildMeasurementCard(Quote quote, Customer customer) {
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.only(bottom: 16),
+      padding: const EdgeInsets.all(16),
+      decoration: _cardDecoration(),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(6),
+                    decoration: BoxDecoration(
+                      color: AppColors.primary.withValues(alpha: 0.1),
+                      borderRadius: BorderRadius.circular(6),
+                    ),
+                    child: const Icon(Icons.receipt_long, size: 16, color: AppColors.primary),
+                  ),
+                  const SizedBox(width: 8),
+                  Text(
+                    'Quote ${quote.quoteNumber}',
+                    style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
+                  ),
+                ],
+              ),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                decoration: BoxDecoration(
+                  color: AppColors.info.withValues(alpha: 0.1),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Text(
+                  _formatDate(quote.createdAt),
+                  style: const TextStyle(fontSize: 11, color: AppColors.info, fontWeight: FontWeight.w600),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              const Icon(Icons.person_outline, size: 14, color: AppColors.textLight),
+              const SizedBox(width: 6),
+              Expanded(
+                child: Text(
+                  '${quote.customerName ?? customer.name}${customer.phone != null ? " • 📞 ${customer.phone}" : ""}',
+                  style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: AppColors.text),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+            ],
+          ),
+          const Divider(height: 20),
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: AppColors.info.withValues(alpha: 0.04),
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: AppColors.info.withValues(alpha: 0.15)),
+            ),
+            child: SelectableText(
+              quote.siteMeasurements!,
+              style: const TextStyle(fontSize: 13, height: 1.4, color: AppColors.text),
+            ),
+          ),
+          if (quote.notes != null && quote.notes!.isNotEmpty) ...[
+            const SizedBox(height: 10),
+            Text(
+              'Notes: ${quote.notes}',
+              style: const TextStyle(fontSize: 12, color: AppColors.textLight, fontStyle: FontStyle.italic),
+            ),
+          ],
+          const SizedBox(height: 14),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.end,
+            children: [
+              Expanded(
+                child: Wrap(
+                  alignment: WrapAlignment.end,
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    OutlinedButton.icon(
+                      onPressed: () {
+                        Navigator.pushNamed(context, '/admin/quotes/${quote.id}');
+                      },
+                      icon: const Icon(Icons.visibility_outlined, size: 14),
+                      label: const Text('View Quote'),
+                      style: OutlinedButton.styleFrom(
+                        visualDensity: VisualDensity.compact,
+                      ),
+                    ),
+                    ElevatedButton.icon(
+                      onPressed: () => _exportMeasurementPDF(quote),
+                      icon: const Icon(Icons.picture_as_pdf, size: 14),
+                      label: const Text('Separate PDF'),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: AppColors.primary,
+                        foregroundColor: Colors.white,
+                        visualDensity: VisualDensity.compact,
+                      ),
+                    ),
+                    ElevatedButton.icon(
+                      onPressed: () => _selectQuoteForEdit(quote, customer),
+                      icon: const Icon(Icons.edit, size: 14),
+                      label: const Text('Edit'),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: AppColors.info,
+                        foregroundColor: Colors.white,
+                        visualDensity: VisualDensity.compact,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ============================================
+  // TAB 2: RECORD / EDIT MEASUREMENTS FORM
+  // ============================================
+
+  Widget _buildRecordEditFormTab() {
+    return SingleChildScrollView(
+      physics: const BouncingScrollPhysics(),
+      padding: const EdgeInsets.all(16),
+      child: Form(
+        key: _formKey,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            _buildFormHeader(),
+            const SizedBox(height: 16),
+            LayoutBuilder(
+              builder: (context, constraints) {
+                if (constraints.maxWidth > 900) {
+                  return _buildWideLayout();
+                } else {
+                  return _buildNarrowLayout();
+                }
+              },
+            ),
+            const SizedBox(height: 20),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildFormHeader() {
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
@@ -204,7 +574,7 @@ class _SiteMeasurementsState extends State<SiteMeasurements>
               borderRadius: BorderRadius.circular(10),
             ),
             child: const Icon(
-              Icons.straighten,
+              Icons.edit_note,
               color: AppColors.info,
               size: 28,
             ),
@@ -215,11 +585,11 @@ class _SiteMeasurementsState extends State<SiteMeasurements>
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  'Record Measurements',
+                  'Record & Update Site Measurements',
                   style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
                 ),
                 Text(
-                  'Add site measurements and notes',
+                  'Select a quotation and input exact field measurements and notes.',
                   style: TextStyle(fontSize: 13, color: AppColors.textLight),
                 ),
               ],
@@ -415,7 +785,7 @@ class _SiteMeasurementsState extends State<SiteMeasurements>
             items: _customerQuotes.map((quote) {
               return DropdownMenuItem<Quote>(
                 value: quote,
-                child: Text('${quote.quoteNumber} (${Formatters.currency(quote.total)})'),
+                child: Text('${quote.quoteNumber} (${Formatters.currency(quote.effectiveTotal)})'),
               );
             }).toList(),
             onChanged: (quote) {
@@ -518,12 +888,12 @@ class _SiteMeasurementsState extends State<SiteMeasurements>
           CustomTextField(
             controller: _measurementsController,
             label: 'Site Measurements',
-            hint: 'Enter dimensions, site conditions, etc.',
+            hint: 'Enter dimensions, site conditions, pipe lengths, room sizes...',
             maxLines: 4,
             isRequired: true,
             validator: (value) {
               if (value == null || value.trim().isEmpty) {
-                return 'Please enter measurements';
+                return 'Please enter site measurements';
               }
               return null;
             },
@@ -531,8 +901,8 @@ class _SiteMeasurementsState extends State<SiteMeasurements>
           const SizedBox(height: 16),
           CustomTextField(
             controller: _notesController,
-            label: 'Additional Notes',
-            hint: 'Any other observations (optional)',
+            label: 'Additional Field Notes',
+            hint: 'Any other site observations (optional)',
             maxLines: 3,
           ),
         ],
@@ -569,11 +939,11 @@ class _SiteMeasurementsState extends State<SiteMeasurements>
             ],
           ),
           const Divider(height: 20),
-          _buildTipItem('📏 Measure pipe lengths and diameters'),
-          _buildTipItem('🔧 Note any special fittings required'),
-          _buildTipItem('📸 Take photos of the site'),
-          _buildTipItem('📝 Record any access challenges'),
-          _buildTipItem('⚠️ Note any safety concerns'),
+          _buildTipItem('📏 Measure pipe lengths and diameters accurately'),
+          _buildTipItem('🔧 Note any special fittings or adapters required'),
+          _buildTipItem('📸 Take photos of the site area for documentation'),
+          _buildTipItem('📝 Record any site access or pressure issues'),
+          _buildTipItem('⚠️ Note safety concerns or structural constraints'),
         ],
       ),
     );
@@ -638,7 +1008,7 @@ class _SiteMeasurementsState extends State<SiteMeasurements>
           const SizedBox(height: 12),
           CustomButton(
             text: 'Cancel',
-            onPressed: () => Navigator.pop(context),
+            onPressed: () => _tabController.animateTo(0),
             isOutlined: true,
           ),
         ],
@@ -658,11 +1028,16 @@ class _SiteMeasurementsState extends State<SiteMeasurements>
         const SizedBox(height: 12),
         CustomButton(
           text: 'Cancel',
-          onPressed: () => Navigator.pop(context),
+          onPressed: () => _tabController.animateTo(0),
           isOutlined: true,
         ),
       ],
     );
+  }
+
+  String _formatDate(DateTime? date) {
+    if (date == null) return 'N/A';
+    return '${date.day}/${date.month}/${date.year}';
   }
 
   BoxDecoration _cardDecoration() {

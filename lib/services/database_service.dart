@@ -1084,13 +1084,15 @@ class DatabaseService {
   // ============================================
 
   Future<List<Product>> getProducts({Function()? onSyncComplete}) async {
+    await migrateProductCodesToIncremental();
     final maps = await _dbHelper.getAllProducts();
     final localProducts = maps.map((map) => Product.fromMap(map)).toList();
 
     isOnline.then((online) {
-      if (online) {
+      if (online && !_isSyncing) {
         _log('🔄 [Background] Fetching latest products from Supabase...');
         _fetchProductsFromSupabase().then((supabaseProducts) async {
+          if (_isSyncing) return;
           for (var product in supabaseProducts) {
             await _saveProductWithCheck(product);
           }
@@ -1108,6 +1110,7 @@ class DatabaseService {
   }
 
   Future<List<Product>> getProductsOnlyLocal() async {
+    await migrateProductCodesToIncremental();
     final maps = await _dbHelper.getAllProducts();
     return maps.map((map) => Product.fromMap(map)).toList();
   }
@@ -1294,12 +1297,31 @@ class DatabaseService {
           ? await _dbHelper.getQuote(invoice.quoteId)
           : null;
 
+      Quote? quoteObj;
+      if (quoteMap != null) {
+        quoteObj = Quote.fromJson(quoteMap);
+        quoteObj = await _hydrateQuote(quoteObj);
+      }
+
+      final subtotal = (invoice.subtotal > 0)
+          ? invoice.subtotal
+          : (quoteObj != null ? quoteObj.effectiveSubtotal : 0.0);
+      final total = (invoice.total > 0)
+          ? invoice.total
+          : (quoteObj != null ? quoteObj.effectiveTotal : 0.0);
+      final balanceDue = (invoice.balanceDue > 0 || invoice.amountPaid > 0)
+          ? (total - invoice.amountPaid).clamp(0.0, total)
+          : total;
+
       return invoice.copyWith(
+        subtotal: subtotal,
+        total: total,
+        balanceDue: balanceDue,
         customerName: customerMap?['name']?.toString() ?? invoice.customerName,
         customer: customerMap != null ? Customer.fromJson(customerMap) : null,
         quoteNumber:
             quoteMap?['quote_number']?.toString() ?? invoice.quoteNumber,
-        quote: quoteMap != null ? Quote.fromJson(quoteMap) : null,
+        quote: quoteObj,
       );
     } catch (e) {
       _log('❌ Error hydrating invoice ${invoice.invoiceNumber}: $e');
@@ -2099,16 +2121,19 @@ class DatabaseService {
       final quote = await getQuote(quoteId);
       if (quote == null) return null;
 
+      final effSubtotal = quote.effectiveSubtotal;
+      final effTotal = quote.effectiveTotal;
+
       // Create invoice data from quote
       final invoiceData = {
         'quote_id': quoteId,
         'customer_id': quote.customerId,
-        'subtotal': quote.subtotal,
-        'tax': quote.tax,
+        'subtotal': effSubtotal,
+        'tax': quote.tax > 0 ? quote.tax : (effTotal - effSubtotal),
         'discount': quote.discount,
-        'total': quote.grandTotal,
+        'total': effTotal,
         'amount_paid': 0,
-        'balance_due': quote.grandTotal,
+        'balance_due': effTotal,
         'payment_status': Constants.invoiceStatusUnpaid,
         'due_date': DateTime.now()
             .add(Duration(days: quote.validityDays))
@@ -2608,6 +2633,7 @@ class DatabaseService {
       } else {
         _log('✅ All invoices already match the new format.');
       }
+      await migrateProductCodesToIncremental();
     } catch (e) {
       _log('❌ Error migrating invoices: $e');
     }
@@ -3103,25 +3129,20 @@ class DatabaseService {
     return incrementInvoiceNumber(highestInvoiceNum);
   }
 
-  Future<String> _generateSku(String name) async {
+  Future<String> generateNextProductCode() async {
     try {
-      String prefix = name.substring(0, 3).toUpperCase();
-      if (name.length < 3) {
-        prefix = name.padRight(3, 'X').toUpperCase();
-      }
-
-      final existingSkus = await _dbHelper.query(
+      final maps = await _dbHelper.query(
         'products',
-        where: 'sku LIKE ?',
-        whereArgs: ['$prefix%'],
+        columns: ['sku'],
       );
 
       int maxNumber = 0;
-      for (var row in existingSkus) {
+      final numericRegex = RegExp(r'^\d+$');
+
+      for (var row in maps) {
         final sku = row['sku'] as String?;
-        if (sku != null && sku.startsWith(prefix)) {
-          final numberPart = sku.substring(prefix.length + 1);
-          final number = int.tryParse(numberPart);
+        if (sku != null && numericRegex.hasMatch(sku)) {
+          final number = int.tryParse(sku);
           if (number != null && number > maxNumber) {
             maxNumber = number;
           }
@@ -3132,31 +3153,106 @@ class DatabaseService {
         try {
           final supabaseResponse = await _supabase.client
               .from(SupabaseService.productsTable)
-              .select('sku')
-              .ilike('sku', '$prefix%')
-              .order('sku', ascending: false)
-              .limit(1);
+              .select('sku');
 
-          if (supabaseResponse.isNotEmpty) {
-            final supabaseSku = supabaseResponse[0]['sku']?.toString() ?? '';
-            if (supabaseSku.startsWith(prefix)) {
-              final numberPart = supabaseSku.substring(prefix.length + 1);
-              final number = int.tryParse(numberPart);
+          for (var row in supabaseResponse) {
+            final sku = row['sku']?.toString() ?? '';
+            if (numericRegex.hasMatch(sku)) {
+              final number = int.tryParse(sku);
               if (number != null && number > maxNumber) {
                 maxNumber = number;
               }
             }
           }
-        } catch (e) {
-          // Ignore Supabase errors
-        }
+        } catch (_) {}
       }
 
       final nextNumber = maxNumber + 1;
-      return '$prefix-${nextNumber.toString().padLeft(4, '0')}';
+      return nextNumber.toString().padLeft(4, '0');
     } catch (e) {
-      _log('Error generating SKU: $e');
-      return 'SKU-${DateTime.now().millisecondsSinceEpoch}';
+      _log('⚠️ Error generating product code: $e');
+      return '0001';
+    }
+  }
+
+  Future<String> _generateSku(String name) async {
+    return await generateNextProductCode();
+  }
+
+  Future<void> migrateProductCodesToIncremental() async {
+    try {
+      final db = await _dbHelper.database;
+
+      final productsList = await db.query(
+        'products',
+        orderBy: 'created_at ASC, id ASC',
+      );
+
+      if (productsList.isEmpty) return;
+
+      bool needsMigration = productsList.asMap().entries.any((entry) {
+        final index = entry.key + 1;
+        final sku = entry.value['sku'] as String?;
+        final expectedSku = index.toString().padLeft(4, '0');
+        return sku != expectedSku;
+      });
+
+      if (!needsMigration) {
+        return;
+      }
+
+      _log('🔄 Migrating product codes to incremental 4-digit format...');
+      final now = DateTime.now().toIso8601String();
+
+      // Step 1: Assign temp SKUs to avoid unique constraints
+      for (int i = 0; i < productsList.length; i++) {
+        final id = productsList[i]['id'] as String;
+        await db.update(
+          'products',
+          {'sku': 'TEMP-P-$i', 'updated_at': now},
+          where: 'id = ?',
+          whereArgs: [id],
+        );
+      }
+
+      // Step 2: Assign final sequential numbers
+      for (int i = 0; i < productsList.length; i++) {
+        final id = productsList[i]['id'] as String;
+        final newSku = (i + 1).toString().padLeft(4, '0');
+
+        await db.update(
+          'products',
+          {'sku': newSku, 'updated_at': now},
+          where: 'id = ?',
+          whereArgs: [id],
+        );
+
+        if (await isOnline && _isValidUuid(id)) {
+          try {
+            await _supabase.client
+                .from(SupabaseService.productsTable)
+                .update({'sku': newSku, 'updated_at': now})
+                .eq('id', id);
+          } catch (e) {
+            await _dbHelper.addToSyncQueue(
+              tableName: 'products',
+              operation: 'update',
+              recordId: id,
+              data: {'sku': newSku, 'updated_at': now},
+            );
+          }
+        } else {
+          await _dbHelper.addToSyncQueue(
+            tableName: 'products',
+            operation: 'update',
+            recordId: id,
+            data: {'sku': newSku, 'updated_at': now},
+          );
+        }
+      }
+      _log('✅ Product code migration complete.');
+    } catch (e) {
+      _log('❌ Error migrating product codes: $e');
     }
   }
 

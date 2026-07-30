@@ -96,7 +96,7 @@ class CustomDropdown<T> extends StatelessWidget {
           const SizedBox(height: 6),
         ],
         DropdownButtonFormField<T>(
-          initialValue: value,
+          initialValue: (items.any((item) => item.value == value)) ? value : null,
           items: items,
           onChanged: enabled ? onChanged : null,
           validator: validator,

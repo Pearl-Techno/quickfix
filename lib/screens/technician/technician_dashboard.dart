@@ -735,7 +735,7 @@ class _TechnicianDashboardState extends State<TechnicianDashboard>
                   style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
                 ),
                 Text(
-                  _formatCurrency(quote.total),
+                  _formatCurrency(quote.effectiveTotal),
                   style: const TextStyle(
                     fontWeight: FontWeight.bold,
                     fontSize: 14,
@@ -896,7 +896,7 @@ class _TechnicianDashboardState extends State<TechnicianDashboard>
                     Expanded(
                       flex: 3,
                       child: _buildCell(
-                        _formatCurrency(quote.total),
+                        _formatCurrency(quote.effectiveTotal),
                         center: true,
                         isBold: true,
                         color: AppColors.primary,

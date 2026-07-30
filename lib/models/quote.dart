@@ -17,6 +17,7 @@ class Quote {
   final int validityDays;
   final String? scope;
   final String? notes;
+  final String? terms;
   final String? siteMeasurements;
   final DateTime? createdAt;
   final DateTime? updatedAt;
@@ -39,6 +40,7 @@ class Quote {
     this.validityDays = Constants.defaultQuoteValidityDays,
     this.scope,
     this.notes,
+    this.terms,
     this.siteMeasurements,
     this.createdAt,
     this.updatedAt,
@@ -69,16 +71,17 @@ class Quote {
       status: json['status']?.toString() ?? Constants.quoteStatusDraft,
       subtotal: (json['subtotal'] ?? 0).toDouble(),
       tax: (json['tax'] ?? 0).toDouble(),
-      total: (json['total'] ?? 0).toDouble(),
+      total: (json['total'] ?? json['grand_total'] ?? json['subtotal'] ?? 0).toDouble(),
       discount: (json['discount'] ?? 0).toDouble(),
-      grandTotal: (json['grand_total'] ?? json['total'] ?? 0).toDouble(),
+      grandTotal: (json['grand_total'] ?? json['total'] ?? json['subtotal'] ?? 0).toDouble(),
       validityDays: json['validity_days'] ?? Constants.defaultQuoteValidityDays,
       scope: json['scope']?.toString(),
       notes: json['notes']?.toString(),
+      terms: json['terms']?.toString(),
       siteMeasurements: json['site_measurements']?.toString(),
       createdAt: _parseDateTime(json['created_at']),
       updatedAt: _parseDateTime(json['updated_at']),
-      expiryDate: _parseDateTime(json['expiry_date']),
+      expiryDate: _parseDateTime(json['expiry_date'] ?? json['due_date']),
       customerName: customerObj?.name ?? json['customer_name']?.toString(),
       customer: customerObj,
       items: itemsList,
@@ -104,16 +107,17 @@ class Quote {
       status: map['status']?.toString() ?? Constants.quoteStatusDraft,
       subtotal: (map['subtotal'] ?? 0).toDouble(),
       tax: (map['tax'] ?? 0).toDouble(),
-      total: (map['total'] ?? 0).toDouble(),
+      total: (map['total'] ?? map['grand_total'] ?? map['subtotal'] ?? 0).toDouble(),
       discount: (map['discount'] ?? 0).toDouble(),
-      grandTotal: (map['grand_total'] ?? map['total'] ?? 0).toDouble(),
+      grandTotal: (map['grand_total'] ?? map['total'] ?? map['subtotal'] ?? 0).toDouble(),
       validityDays: map['validity_days'] ?? Constants.defaultQuoteValidityDays,
       scope: map['scope']?.toString(),
       notes: map['notes']?.toString(),
+      terms: map['terms']?.toString(),
       siteMeasurements: map['site_measurements']?.toString(),
       createdAt: _parseDateTime(map['created_at']),
       updatedAt: _parseDateTime(map['updated_at']),
-      expiryDate: _parseDateTime(map['expiry_date']),
+      expiryDate: _parseDateTime(map['expiry_date'] ?? map['due_date']),
       customerName: map['customer_name']?.toString(),
       items: itemsList,
     );
@@ -135,6 +139,7 @@ class Quote {
       'validity_days': validityDays,
       'scope': scope,
       'notes': notes,
+      'terms': terms,
       'site_measurements': siteMeasurements,
       'created_at': createdAt?.toIso8601String(),
       'updated_at': updatedAt?.toIso8601String(),
@@ -160,6 +165,7 @@ class Quote {
       'validity_days': validityDays,
       'scope': scope,
       'notes': notes,
+      'terms': terms,
       'site_measurements': siteMeasurements,
       'created_at': createdAt?.toIso8601String(),
       'updated_at': updatedAt?.toIso8601String(),
@@ -265,6 +271,27 @@ class Quote {
     return afterDiscount + taxAmount;
   }
 
+  double get effectiveTotal {
+    if (grandTotal > 0) return grandTotal;
+    if (total > 0) return total;
+    if (subtotal > 0) return subtotal;
+    if (items != null && items!.isNotEmpty) {
+      return items!.fold(0.0, (sum, item) => sum + item.total);
+    }
+    return 0.0;
+  }
+
+  double get effectiveSubtotal {
+    if (subtotal > 0) return subtotal;
+    if (effectiveTotal > 0) {
+      return tax > 0 ? effectiveTotal / (1 + Constants.taxRate) : effectiveTotal;
+    }
+    if (items != null && items!.isNotEmpty) {
+      return items!.fold(0.0, (sum, item) => sum + item.total);
+    }
+    return 0.0;
+  }
+
   // ============= VALIDATION METHODS =============
   bool get isValid {
     return id.isNotEmpty &&
@@ -300,8 +327,8 @@ class Quote {
 
   IconData get statusIcon => Constants.getQuoteStatusIcon(status);
 
-  String get displayTotal => formatCurrency(total);
-  String get displaySubtotal => formatCurrency(subtotal);
+  String get displayTotal => formatCurrency(effectiveTotal);
+  String get displaySubtotal => formatCurrency(effectiveSubtotal);
   String get displayTax => formatCurrency(tax);
   String get displayDiscount => formatCurrency(discount);
   String get displayGrandTotal => formatCurrency(grandTotal);

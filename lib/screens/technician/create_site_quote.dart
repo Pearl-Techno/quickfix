@@ -1,5 +1,6 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 import 'package:image_picker/image_picker.dart';
 import '../../config/app_colors.dart';
@@ -7,6 +8,7 @@ import '../../config/constants.dart';
 import '../../providers/customer_provider.dart';
 import '../../providers/product_provider.dart';
 import '../../providers/quote_provider.dart';
+import '../../providers/settings_provider.dart';
 import '../../providers/auth_provider.dart';
 import '../../services/storage_service.dart';
 import '../../models/customer.dart';
@@ -51,11 +53,13 @@ class _CreateSiteQuoteState extends State<CreateSiteQuote>
   Product? _selectedProduct;
   String _itemType = Constants.itemTypeStock;
   List<Product> _filteredProducts = [];
-  String _selectedSection = 'Materials';
+  String _selectedSection = '';
 
   final List<QuoteItem> _items = [];
-  final List<String> _sections = ['Materials', 'Labour', 'Transport'];
+  final List<String> _sections = ['Materials', 'Labour', 'Other'];
   final List<XFile> _photos = [];
+  final _termsController = TextEditingController();
+  DateTime? _dueDate;
   double _subtotal = 0;
   double _tax = 0;
   double _total = 0;
@@ -87,6 +91,7 @@ class _CreateSiteQuoteState extends State<CreateSiteQuote>
     _productSearchController.removeListener(_filterProducts);
     _productSearchController.dispose();
     _notesController.dispose();
+    _termsController.dispose();
     _siteMeasurementsController.dispose();
     _furtherDescriptionController.dispose();
     _customDescriptionController.dispose();
@@ -137,10 +142,7 @@ class _CreateSiteQuoteState extends State<CreateSiteQuote>
       return;
     }
 
-    if (_selectedSection.isEmpty && _sections.isNotEmpty) {
-      Helpers.showError(context, 'Please select a section');
-      return;
-    }
+
 
     if (_selectedProduct == null && _itemType == Constants.itemTypeStock) {
       Helpers.showError(context, 'Please select a product');
@@ -176,6 +178,7 @@ class _CreateSiteQuoteState extends State<CreateSiteQuote>
     }
 
     final quantity = int.tryParse(_quantityController.text.trim()) ?? 1;
+    final effectiveSection = _selectedSection.trim().isNotEmpty ? _selectedSection : 'General';
 
     final item = QuoteItem(
       id: Helpers.generateId(),
@@ -186,11 +189,14 @@ class _CreateSiteQuoteState extends State<CreateSiteQuote>
       quantity: quantity,
       unitPrice: unitPrice,
       total: unitPrice * quantity,
-      section: _selectedSection,
+      section: effectiveSection,
     );
 
     setState(() {
       _items.add(item);
+      if (!_sections.contains(effectiveSection)) {
+        _sections.add(effectiveSection);
+      }
       _calculateTotals();
       _selectedProduct = null;
       _quantityController.text = '1';
@@ -200,7 +206,7 @@ class _CreateSiteQuoteState extends State<CreateSiteQuote>
       _customUnitPriceController.clear();
     });
 
-    Helpers.showSuccess(context, 'Item added to $_selectedSection');
+    Helpers.showSuccess(context, 'Item added${_selectedSection.isNotEmpty ? ' to $_selectedSection' : ''}');
   }
 
   void _removeItem(int index) {
@@ -280,6 +286,7 @@ class _CreateSiteQuoteState extends State<CreateSiteQuote>
 
     final customerProvider = context.read<CustomerProvider>();
     final quoteProvider = context.read<QuoteProvider>();
+    final vatEnabled = context.read<SettingsProvider>().vatEnabled;
 
     Customer? targetCustomer = _selectedCustomer;
 
@@ -318,7 +325,10 @@ class _CreateSiteQuoteState extends State<CreateSiteQuote>
       items: items,
       scope: scope,
       notes: notes,
+      terms: _termsController.text.trim().isEmpty ? null : _termsController.text.trim(),
+      dueDate: _dueDate,
       siteMeasurements: siteMeasurements,
+      applyTax: vatEnabled,
     );
 
     setState(() => _isSubmitting = false);
@@ -378,8 +388,10 @@ class _CreateSiteQuoteState extends State<CreateSiteQuote>
       'total': _total,
       'scope': _scopeController.text.trim(),
       'notes': _notesController.text.trim(),
+      'terms': _termsController.text.trim(),
+      'expiryDate': _dueDate,
       'siteMeasurements': _siteMeasurementsController.text.trim(),
-      'applyTax': true,
+      'applyTax': context.read<SettingsProvider>().vatEnabled,
     };
 
     final result = await showDialog<bool>(
@@ -1159,7 +1171,7 @@ class _CreateSiteQuoteState extends State<CreateSiteQuote>
           const Divider(height: 20),
           if (_sections.isNotEmpty) ...[
             CustomDropdown<String>(
-              value: _selectedSection,
+              value: _selectedSection.isEmpty ? null : _selectedSection,
               items: _sections.map((section) {
                 final itemCount = _items
                     .where((item) => item.section == section)
@@ -1191,8 +1203,9 @@ class _CreateSiteQuoteState extends State<CreateSiteQuote>
                   ),
                 );
               }).toList(),
-              label: 'Select Section *',
-              hint: 'Choose a section for items',
+              label: 'Select Section (Optional)',
+              isRequired: false,
+              hint: 'Choose a section for items (Optional)',
               onChanged: (value) {
                 if (value != null) {
                   setState(() {
@@ -1222,7 +1235,7 @@ class _CreateSiteQuoteState extends State<CreateSiteQuote>
             children: [
               _buildTypeTab(Constants.itemTypeStock, 'Stock Item'),
               _buildTypeTab(Constants.itemTypeService, 'Labour'),
-              _buildTypeTab(Constants.itemTypeOutsourced, 'Transport / Other'),
+              _buildTypeTab(Constants.itemTypeOutsourced, 'Other'),
             ],
           ),
           const SizedBox(height: 16),
@@ -1360,10 +1373,10 @@ class _CreateSiteQuoteState extends State<CreateSiteQuote>
             // Custom item description
             CustomTextField(
               controller: _customDescriptionController,
-              label: _itemType == Constants.itemTypeService ? 'Service / Labour Description *' : 'Transport / Item Description *',
-              hint: _itemType == Constants.itemTypeService ? 'e.g., General plumbing installation' : 'e.g., Transport to site',
+              label: _itemType == Constants.itemTypeService ? 'Service / Labour Description *' : 'Item / Service Description *',
+              hint: _itemType == Constants.itemTypeService ? 'e.g., General plumbing installation' : 'e.g., Site delivery / Miscellaneous',
               prefixIcon: Icon(
-                _itemType == Constants.itemTypeService ? Icons.design_services : Icons.local_shipping,
+                _itemType == Constants.itemTypeService ? Icons.design_services : Icons.miscellaneous_services,
                 size: 18,
               ),
             ),
@@ -1699,6 +1712,8 @@ class _CreateSiteQuoteState extends State<CreateSiteQuote>
             ],
           ),
           const Divider(height: 20),
+          _buildDueDateField(),
+          const SizedBox(height: 12),
           CustomTextField(
             controller: _scopeController,
             label: 'Scope of Works / Service',
@@ -1719,8 +1734,87 @@ class _CreateSiteQuoteState extends State<CreateSiteQuote>
             hint: 'Add any site notes (optional)',
             maxLines: 2,
           ),
+          const SizedBox(height: 12),
+          CustomTextField(
+            controller: _termsController,
+            label: 'Terms & Conditions (Optional)',
+            hint: 'Type custom terms & conditions or leave blank for system defaults',
+            maxLines: 3,
+          ),
         ],
       ),
+    );
+  }
+
+  Widget _buildDueDateField() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            const Text(
+              'Valid Until / Due Date (Optional)',
+              style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: AppColors.text),
+            ),
+            if (_dueDate != null)
+              GestureDetector(
+                onTap: () {
+                  setState(() {
+                    _dueDate = null;
+                  });
+                },
+                child: const Text(
+                  'Clear (No due date)',
+                  style: TextStyle(fontSize: 11, color: AppColors.error, fontWeight: FontWeight.w600),
+                ),
+              ),
+          ],
+        ),
+        const SizedBox(height: 6),
+        InkWell(
+          onTap: () async {
+            final picked = await showDatePicker(
+              context: context,
+              initialDate: _dueDate ?? DateTime.now().add(const Duration(days: 14)),
+              firstDate: DateTime.now().subtract(const Duration(days: 30)),
+              lastDate: DateTime.now().add(const Duration(days: 365)),
+            );
+            if (picked != null) {
+              setState(() {
+                _dueDate = picked;
+              });
+            }
+          },
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: AppColors.border),
+            ),
+            child: Row(
+              children: [
+                const Icon(Icons.calendar_today, size: 18, color: AppColors.primary),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    _dueDate != null
+                        ? DateFormat('EEE, MMM d, yyyy').format(_dueDate!)
+                        : 'No due date set (Click to select date)',
+                    style: TextStyle(
+                      fontSize: 13,
+                      color: _dueDate != null ? AppColors.text : AppColors.textLight,
+                      fontWeight: _dueDate != null ? FontWeight.w600 : FontWeight.normal,
+                    ),
+                  ),
+                ),
+                const Icon(Icons.arrow_drop_down, color: AppColors.textLight),
+              ],
+            ),
+          ),
+        ),
+      ],
     );
   }
 

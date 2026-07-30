@@ -1002,7 +1002,7 @@ class _InvoiceDetailsScreenState extends State<InvoiceDetailsScreen>
   // ============================================
 
   Widget _buildPaymentSummaryCard(Invoice invoice) {
-    final progress = invoice.total > 0 ? invoice.paidPercentage : 0;
+    final progress = invoice.effectiveTotal > 0 ? invoice.paidPercentage : 0;
 
     return Container(
       padding: const EdgeInsets.all(16),
@@ -1012,7 +1012,7 @@ class _InvoiceDetailsScreenState extends State<InvoiceDetailsScreen>
         children: [
           _buildSectionTitle('Payment Summary', Icons.payment),
           const SizedBox(height: 12),
-          _buildDetailRow('Total Amount', _formatCurrency(invoice.total)),
+          _buildDetailRow('Total Amount', _formatCurrency(invoice.effectiveTotal)),
           _buildDetailRow(
             'Amount Paid',
             _formatCurrency(invoice.amountPaid),
@@ -1020,8 +1020,8 @@ class _InvoiceDetailsScreenState extends State<InvoiceDetailsScreen>
           ),
           _buildDetailRow(
             'Balance Due',
-            _formatCurrency(invoice.balanceDue),
-            color: invoice.balanceDue > 0 ? AppColors.error : AppColors.success,
+            _formatCurrency(invoice.effectiveBalanceDue),
+            color: invoice.effectiveBalanceDue > 0 ? AppColors.error : AppColors.success,
             isBold: true,
           ),
           const SizedBox(height: 8),
@@ -1071,16 +1071,15 @@ class _InvoiceDetailsScreenState extends State<InvoiceDetailsScreen>
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.end,
         children: [
-          if (invoice.subtotal > 0)
-            _buildTotalsRow('Subtotal', _formatCurrency(invoice.subtotal)),
+          _buildTotalsRow('Subtotal', _formatCurrency(invoice.effectiveSubtotal)),
           if (invoice.tax > 0)
-            _buildTotalsRow('Tax', _formatCurrency(invoice.tax)),
+            _buildTotalsRow('Tax (16%)', _formatCurrency(invoice.tax)),
           if (invoice.discount > 0)
             _buildTotalsRow('Discount', _formatCurrency(invoice.discount)),
           const Divider(),
           _buildTotalsRow(
             'Total',
-            _formatCurrency(invoice.total),
+            _formatCurrency(invoice.effectiveTotal),
             isBold: true,
             isLarge: true,
           ),

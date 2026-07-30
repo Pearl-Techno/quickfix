@@ -8,6 +8,7 @@ import '../../widgets/custom_dropdown.dart';
 import '../../widgets/sidebar_menu.dart';
 import '../../utils/helpers.dart';
 import '../../utils/validators.dart';
+import '../../services/database_service.dart';
 
 class AddProductScreen extends StatefulWidget {
   const AddProductScreen({super.key});
@@ -74,14 +75,13 @@ class _AddProductScreenState extends State<AddProductScreen>
     _animationController.forward();
   }
 
-  void _generateProductCode() {
-    final now = DateTime.now();
-    final datePart =
-        '${now.year}${now.month.toString().padLeft(2, '0')}${now.day.toString().padLeft(2, '0')}';
-    final randomPart = (1000 + DateTime.now().millisecondsSinceEpoch % 9000)
-        .toString();
-    final code = 'PRD-$datePart-$randomPart';
-    _productCodeController.text = code;
+  Future<void> _generateProductCode() async {
+    final code = await DatabaseService().generateNextProductCode();
+    if (mounted) {
+      setState(() {
+        _productCodeController.text = code;
+      });
+    }
   }
 
   void _toggleSummary() {
@@ -419,13 +419,15 @@ class _AddProductScreenState extends State<AddProductScreen>
             prefixIcon: const Icon(Icons.qr_code, size: 20),
             suffixIcon: IconButton(
               icon: const Icon(Icons.refresh, color: AppColors.primary),
-              onPressed: () {
-                _generateProductCode();
-                Helpers.showSnackBar(
-                  context,
-                  'Product code regenerated',
-                  backgroundColor: AppColors.info,
-                );
+              onPressed: () async {
+                await _generateProductCode();
+                if (mounted) {
+                  Helpers.showSnackBar(
+                    context,
+                    'Product code regenerated',
+                    backgroundColor: AppColors.info,
+                  );
+                }
               },
             ),
             validator: (value) {

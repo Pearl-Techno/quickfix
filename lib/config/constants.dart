@@ -20,6 +20,8 @@ class Constants {
   static const int minQuoteItems = 1;
   static const int maxQuoteItems = 100;
   static const int itemsPerPage = 20;
+  static const String defaultTermsAndConditions =
+      '1. Materials remain property of Quickfix until fully paid.\n2. Warranty: 12 months on workmanship and materials.\n3. Payment terms as agreed.';
 
   // ============= DATE FORMATS =============
   static const String dateFormat = 'dd/MM/yyyy';

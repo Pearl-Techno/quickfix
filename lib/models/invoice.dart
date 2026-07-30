@@ -307,6 +307,27 @@ class Invoice {
   bool get isPaymentComplete => amountPaid >= total;
   bool get hasPartialPayment => amountPaid > 0 && amountPaid < total;
 
+  double get effectiveTotal {
+    if (total > 0) return total;
+    if (subtotal > 0) return subtotal + tax - discount;
+    if (quote != null && quote!.effectiveTotal > 0) return quote!.effectiveTotal;
+    return 0.0;
+  }
+
+  double get effectiveSubtotal {
+    if (subtotal > 0) return subtotal;
+    if (effectiveTotal > 0) {
+      return tax > 0 ? effectiveTotal / (1 + Constants.taxRate) : effectiveTotal;
+    }
+    if (quote != null && quote!.effectiveSubtotal > 0) return quote!.effectiveSubtotal;
+    return 0.0;
+  }
+
+  double get effectiveBalanceDue {
+    final effTotal = effectiveTotal;
+    return (effTotal - amountPaid).clamp(0.0, effTotal);
+  }
+
   // ============= DISPLAY PROPERTIES =============
   String get displayStatus => Constants.getInvoiceStatusDisplay(paymentStatus);
 
@@ -314,12 +335,12 @@ class Invoice {
 
   IconData get statusIcon => Constants.getInvoiceStatusIcon(paymentStatus);
 
-  String get displayTotal => formatCurrency(total);
-  String get displaySubtotal => formatCurrency(subtotal);
+  String get displayTotal => formatCurrency(effectiveTotal);
+  String get displaySubtotal => formatCurrency(effectiveSubtotal);
   String get displayTax => formatCurrency(tax);
   String get displayDiscount => formatCurrency(discount);
   String get displayAmountPaid => formatCurrency(amountPaid);
-  String get displayBalanceDue => formatCurrency(balanceDue);
+  String get displayBalanceDue => formatCurrency(effectiveBalanceDue);
 
   String get displayCreatedAt {
     if (createdAt == null) return 'N/A';
