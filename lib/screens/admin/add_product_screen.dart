@@ -41,6 +41,9 @@ class _AddProductScreenState extends State<AddProductScreen>
   late Animation<double> _fadeAnimation;
 
   final List<String> _categories = [
+    'Plumbing',
+    'Bathrooms',
+    'Shower Cubicles',
     'Pipes',
     'Fittings',
     'Valves',

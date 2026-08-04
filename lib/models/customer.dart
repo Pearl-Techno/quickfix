@@ -9,6 +9,7 @@ class Customer {
   final String? address;
   final String? siteLocation;
   final String? siteNotes;
+  final String? remarks;
   final DateTime? createdAt;
   final DateTime? updatedAt;
 
@@ -20,6 +21,7 @@ class Customer {
     this.address,
     this.siteLocation,
     this.siteNotes,
+    this.remarks,
     this.createdAt,
     this.updatedAt,
   });
@@ -34,6 +36,7 @@ class Customer {
       address: json['address']?.toString(),
       siteLocation: json['site_location']?.toString(),
       siteNotes: json['site_notes']?.toString(),
+      remarks: json['remarks']?.toString() ?? json['site_notes']?.toString(),
       createdAt: _parseDateTime(json['created_at']),
       updatedAt: _parseDateTime(json['updated_at']),
     );
@@ -52,6 +55,7 @@ class Customer {
       address: map['address']?.toString(),
       siteLocation: map['site_location']?.toString(),
       siteNotes: map['site_notes']?.toString(),
+      remarks: map['remarks']?.toString() ?? map['site_notes']?.toString(),
       createdAt: _parseDateTime(map['created_at']),
       updatedAt: _parseDateTime(map['updated_at']),
     );
@@ -67,6 +71,7 @@ class Customer {
       'address': address,
       'site_location': siteLocation,
       'site_notes': siteNotes,
+      'remarks': remarks,
     };
   }
 
@@ -79,6 +84,7 @@ class Customer {
       'address': address,
       'site_location': siteLocation,
       'site_notes': siteNotes,
+      'remarks': remarks,
       'created_at': createdAt?.toIso8601String(),
       'updated_at': updatedAt?.toIso8601String(),
     };
@@ -93,6 +99,7 @@ class Customer {
     String? address,
     String? siteLocation,
     String? siteNotes,
+    String? remarks,
     DateTime? createdAt,
     DateTime? updatedAt,
   }) {
@@ -104,6 +111,7 @@ class Customer {
       address: address ?? this.address,
       siteLocation: siteLocation ?? this.siteLocation,
       siteNotes: siteNotes ?? this.siteNotes,
+      remarks: remarks ?? this.remarks,
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
     );
@@ -119,6 +127,8 @@ class Customer {
   bool get hasAddress => address != null && address!.isNotEmpty;
   bool get hasSiteLocation => siteLocation != null && siteLocation!.isNotEmpty;
   bool get hasSiteNotes => siteNotes != null && siteNotes!.isNotEmpty;
+  bool get hasRemarks => remarks != null && remarks!.isNotEmpty;
+  String get displayRemarks => hasRemarks ? remarks! : 'No remarks';
 
   bool get isEmailValid {
     if (!hasEmail) return false;
@@ -215,6 +225,7 @@ class Customer {
     if (hasAddress) parts.add('Address: $address');
     if (hasSiteLocation) parts.add('Site: $siteLocation');
     if (hasSiteNotes) parts.add('Notes: $siteNotes');
+    if (hasRemarks) parts.add('Remarks: $remarks');
     return parts.join('\n');
   }
 
@@ -260,7 +271,8 @@ class Customer {
     return customer.name.toLowerCase().contains(searchTerm) ||
         (customer.phone?.toLowerCase().contains(searchTerm) ?? false) ||
         (customer.email?.toLowerCase().contains(searchTerm) ?? false) ||
-        (customer.address?.toLowerCase().contains(searchTerm) ?? false);
+        (customer.address?.toLowerCase().contains(searchTerm) ?? false) ||
+        (customer.remarks?.toLowerCase().contains(searchTerm) ?? false);
   }
 
   // ============= TO STRING =============

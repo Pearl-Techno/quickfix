@@ -374,6 +374,10 @@ class _QuoteDetailsScreenState extends State<QuoteDetailsScreen>
               _buildStatusCard(quote),
               const SizedBox(height: 12),
               _buildActionToolbar(quote),
+              if (quote.hasTitle) ...[
+                const SizedBox(height: 16),
+                _buildTitleCard(quote),
+              ],
               const SizedBox(height: 16),
               _buildCustomerCard(quote),
               if (quote.scope != null && quote.scope!.isNotEmpty) ...[
@@ -473,6 +477,45 @@ class _QuoteDetailsScreenState extends State<QuoteDetailsScreen>
                 color: statusColor,
               ),
             ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildTitleCard(Quote quote) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(16),
+      decoration: _cardDecoration(),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(6),
+                decoration: BoxDecoration(
+                  color: AppColors.primary.withValues(alpha: 0.1),
+                  borderRadius: BorderRadius.circular(6),
+                ),
+                child: const Icon(
+                  Icons.title,
+                  size: 18,
+                  color: AppColors.primary,
+                ),
+              ),
+              const SizedBox(width: 10),
+              const Text(
+                'Quotation For',
+                style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+              ),
+            ],
+          ),
+          const Divider(height: 20),
+          Text(
+            quote.title ?? '',
+            style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold, height: 1.3),
           ),
         ],
       ),

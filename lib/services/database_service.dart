@@ -1003,6 +1003,7 @@ class DatabaseService {
       address: data['address'],
       siteLocation: data['site_location'],
       siteNotes: data['site_notes'],
+      remarks: data['remarks'] ?? data['site_notes'],
       createdAt: DateTime.now(),
       updatedAt: DateTime.now(),
     );
@@ -1038,6 +1039,7 @@ class DatabaseService {
       address: data['address'] ?? customer.address,
       siteLocation: data['site_location'] ?? customer.siteLocation,
       siteNotes: data['site_notes'] ?? customer.siteNotes,
+      remarks: data['remarks'] ?? customer.remarks,
     );
 
     // 1. ALWAYS save to local DB first
@@ -1522,9 +1524,10 @@ class DatabaseService {
 
     final quote = Quote(
       id: id,
-      quoteNumber: data['quote_number'] ?? await _generateQuoteNumber(),
+      quoteNumber: data['quote_number'] ?? await generateQuoteNumber(),
       customerId: data['customer_id'] ?? '',
       userId: data['user_id'],
+      title: data['title'],
       status: data['status'] ?? Constants.quoteStatusDraft,
       subtotal: data['subtotal']?.toDouble() ?? 0,
       tax: data['tax']?.toDouble() ?? 0,
@@ -1582,6 +1585,7 @@ class DatabaseService {
 
       final quote = Quote.fromJson(existing);
       final updated = quote.copyWith(
+        title: data['title'] ?? quote.title,
         status: data['status'] ?? quote.status,
         subtotal: data['subtotal']?.toDouble() ?? quote.subtotal,
         tax: data['tax']?.toDouble() ?? quote.tax,
@@ -1919,7 +1923,7 @@ class DatabaseService {
 
     String invoiceNumber = data['invoice_number']?.toString() ?? '';
     if (invoiceNumber.isEmpty) {
-      invoiceNumber = await _generateInvoiceNumber();
+      invoiceNumber = await generateInvoiceNumber();
     }
 
     final invoice = Invoice(
@@ -1979,12 +1983,12 @@ class DatabaseService {
     // Generate invoice number
     String invoiceNumber = data['invoice_number']?.toString() ?? '';
     if (invoiceNumber.isEmpty) {
-      invoiceNumber = await _generateInvoiceNumber();
+      invoiceNumber = await generateInvoiceNumber();
     }
 
     final quoteData = {
       'id': quoteId,
-      'quote_number': 'Q-INV-$invoiceNumber',
+      'quote_number': await generateQuoteNumber(),
       'customer_id': customerId,
       'user_id': userId,
       'status': Constants.quoteStatusConverted,
@@ -3004,7 +3008,7 @@ class DatabaseService {
     return '$nextNumericPart$nextLetterPart';
   }
 
-  Future<String> _generateQuoteNumber() async {
+  Future<String> generateQuoteNumber() async {
     String highestQuoteNum = '';
     final regex = RegExp(r'^\d{3}[A-Z]$');
     
@@ -3071,7 +3075,7 @@ class DatabaseService {
     return 'QPN${nextNumber.toString().padLeft(5, '0')}';
   }
 
-  Future<String> _generateInvoiceNumber() async {
+  Future<String> generateInvoiceNumber() async {
     String highestInvoiceNum = '';
     final regex = RegExp(r'^QPN\d{5}$');
     

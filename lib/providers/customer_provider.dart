@@ -127,7 +127,8 @@ class CustomerProvider extends ChangeNotifier {
           (customer.phone?.toLowerCase().contains(searchTerm) ?? false) ||
           (customer.email?.toLowerCase().contains(searchTerm) ?? false) ||
           (customer.address?.toLowerCase().contains(searchTerm) ?? false) ||
-          (customer.siteLocation?.toLowerCase().contains(searchTerm) ?? false);
+          (customer.siteLocation?.toLowerCase().contains(searchTerm) ?? false) ||
+          (customer.remarks?.toLowerCase().contains(searchTerm) ?? false);
     }).toList();
   }
 
@@ -140,7 +141,8 @@ class CustomerProvider extends ChangeNotifier {
           (customer.phone?.toLowerCase().contains(searchTerm) ?? false) ||
           (customer.email?.toLowerCase().contains(searchTerm) ?? false) ||
           (customer.address?.toLowerCase().contains(searchTerm) ?? false) ||
-          (customer.siteLocation?.toLowerCase().contains(searchTerm) ?? false);
+          (customer.siteLocation?.toLowerCase().contains(searchTerm) ?? false) ||
+          (customer.remarks?.toLowerCase().contains(searchTerm) ?? false);
     }).toList();
   }
 
@@ -175,6 +177,7 @@ class CustomerProvider extends ChangeNotifier {
     String? address,
     String? siteLocation,
     String? siteNotes,
+    String? remarks,
   }) async {
     _setLoading(true);
     _clearError();
@@ -194,6 +197,8 @@ class CustomerProvider extends ChangeNotifier {
           'site_location': siteLocation.trim(),
         if (siteNotes != null && siteNotes.trim().isNotEmpty)
           'site_notes': siteNotes.trim(),
+        if (remarks != null && remarks.trim().isNotEmpty)
+          'remarks': remarks.trim(),
       };
 
       final customer = await _databaseService.createCustomer(data);
@@ -230,6 +235,7 @@ class CustomerProvider extends ChangeNotifier {
     String? address,
     String? siteLocation,
     String? siteNotes,
+    String? remarks,
   }) async {
     _setLoading(true);
     _clearError();
@@ -250,6 +256,8 @@ class CustomerProvider extends ChangeNotifier {
           'site_location': siteLocation.trim(),
         if (siteNotes != null && siteNotes.trim().isNotEmpty)
           'site_notes': siteNotes.trim(),
+        if (remarks != null && remarks.trim().isNotEmpty)
+          'remarks': remarks.trim(),
       };
 
       final customer = await _databaseService.createCustomer(data);
@@ -282,6 +290,7 @@ class CustomerProvider extends ChangeNotifier {
     String? address,
     String? siteLocation,
     String? siteNotes,
+    String? remarks,
   }) async {
     _setLoading(true);
     _clearError();
@@ -306,6 +315,9 @@ class CustomerProvider extends ChangeNotifier {
       }
       if (siteNotes != null) {
         data['site_notes'] = siteNotes.trim().isEmpty ? null : siteNotes.trim();
+      }
+      if (remarks != null) {
+        data['remarks'] = remarks.trim().isEmpty ? null : remarks.trim();
       }
 
       if (data.isEmpty) {

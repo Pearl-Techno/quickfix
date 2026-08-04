@@ -183,6 +183,7 @@ class PdfService {
             preparedBy: preparedBy,
             documentDate: quote.createdAt,
           ),
+          _buildQuotationTitle(quote.title),
           _buildScopeOfWorks(quote.scope),
           _buildItemsTable(items, productSkus),
           _buildBottomSection(quote, qrData),
@@ -233,7 +234,8 @@ class PdfService {
               preparedBy: preparedBy,
               documentDate: quote.createdAt,
             ),
-            pw.SizedBox(height: 16),
+            _buildQuotationTitle(quote.title),
+            pw.SizedBox(height: 12),
             _buildDedicatedMeasurementsSection(quote.siteMeasurements ?? 'No site measurements recorded.'),
             if (quote.scope != null && quote.scope!.isNotEmpty) ...[
               pw.SizedBox(height: 16),
@@ -699,6 +701,7 @@ class PdfService {
             preparedBy: preparedBy,
             documentDate: quote.createdAt,
           ),
+          _buildQuotationTitle(quote.title),
           _buildScopeOfWorks(quote.scope),
           _buildSiteMeasurements(quote.siteMeasurements),
           _buildItemsTable(items, productSkus),
@@ -1123,6 +1126,40 @@ class PdfService {
         ),
         pw.SizedBox(height: 15),
       ],
+    );
+  }
+
+  pw.Widget _buildQuotationTitle(String? title) {
+    if (title == null || title.isEmpty) {
+      return pw.SizedBox.shrink();
+    }
+    return pw.Container(
+      width: double.infinity,
+      margin: const pw.EdgeInsets.only(top: 8, bottom: 4),
+      padding: const pw.EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: pw.BoxDecoration(
+        color: lightBgColor,
+        border: pw.Border.all(color: borderCol, width: 0.5),
+        borderRadius: pw.BorderRadius.circular(4),
+      ),
+      child: pw.Row(
+        children: [
+          _createText(
+            'RE / SUBJECT: ',
+            isBold: true,
+            fontSize: 9,
+            color: primaryColor,
+          ),
+          pw.Expanded(
+            child: _createText(
+              title,
+              isBold: true,
+              fontSize: 9.5,
+              color: textDark,
+            ),
+          ),
+        ],
+      ),
     );
   }
 

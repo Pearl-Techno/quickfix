@@ -8,6 +8,7 @@ class Quote {
   final String quoteNumber;
   final String customerId;
   final String? userId;
+  final String? title;
   final String status;
   final double subtotal;
   final double tax;
@@ -31,6 +32,7 @@ class Quote {
     required this.quoteNumber,
     required this.customerId,
     this.userId,
+    this.title,
     this.status = Constants.quoteStatusDraft,
     this.subtotal = 0,
     this.tax = 0,
@@ -68,6 +70,7 @@ class Quote {
       quoteNumber: json['quote_number']?.toString() ?? '',
       customerId: json['customer_id']?.toString() ?? '',
       userId: json['user_id']?.toString(),
+      title: json['title']?.toString(),
       status: json['status']?.toString() ?? Constants.quoteStatusDraft,
       subtotal: (json['subtotal'] ?? 0).toDouble(),
       tax: (json['tax'] ?? 0).toDouble(),
@@ -104,6 +107,7 @@ class Quote {
       quoteNumber: map['quote_number']?.toString() ?? '',
       customerId: map['customer_id']?.toString() ?? '',
       userId: map['user_id']?.toString(),
+      title: map['title']?.toString(),
       status: map['status']?.toString() ?? Constants.quoteStatusDraft,
       subtotal: (map['subtotal'] ?? 0).toDouble(),
       tax: (map['tax'] ?? 0).toDouble(),
@@ -130,6 +134,7 @@ class Quote {
       'quote_number': quoteNumber,
       'customer_id': customerId,
       'user_id': userId,
+      'title': title,
       'status': status,
       'subtotal': subtotal,
       'tax': tax,
@@ -156,6 +161,7 @@ class Quote {
       'quote_number': quoteNumber,
       'customer_id': customerId,
       'user_id': userId,
+      'title': title,
       'status': status,
       'subtotal': subtotal,
       'tax': tax,
@@ -189,6 +195,7 @@ class Quote {
     String? quoteNumber,
     String? customerId,
     String? userId,
+    String? title,
     String? status,
     double? subtotal,
     double? tax,
@@ -211,6 +218,7 @@ class Quote {
       quoteNumber: quoteNumber ?? this.quoteNumber,
       customerId: customerId ?? this.customerId,
       userId: userId ?? this.userId,
+      title: title ?? this.title,
       status: status ?? this.status,
       subtotal: subtotal ?? this.subtotal,
       tax: tax ?? this.tax,
@@ -301,6 +309,7 @@ class Quote {
   }
 
   bool get hasItems => items != null && items!.isNotEmpty;
+  bool get hasTitle => title != null && title!.isNotEmpty;
   bool get hasNotes => notes != null && notes!.isNotEmpty;
   bool get hasSiteMeasurements =>
       siteMeasurements != null && siteMeasurements!.isNotEmpty;
@@ -485,6 +494,7 @@ class Quote {
     if (query.isEmpty) return true;
     final searchTerm = query.toLowerCase();
     return quote.quoteNumber.toLowerCase().contains(searchTerm) ||
+        (quote.title?.toLowerCase().contains(searchTerm) ?? false) ||
         (quote.customerName?.toLowerCase().contains(searchTerm) ?? false) ||
         (quote.customer?.name.toLowerCase().contains(searchTerm) ?? false) ||
         Constants.getQuoteStatusDisplay(

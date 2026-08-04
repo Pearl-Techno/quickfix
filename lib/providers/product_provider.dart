@@ -85,6 +85,10 @@ class ProductProvider extends ChangeNotifier {
           notifyListeners();
         },
       );
+      if (_products.isEmpty) {
+        await _seedInitialProducts();
+        _products = await _databaseService.getProductsOnlyLocal();
+      }
       _applyFilters();
       _isInitialized = true;
       _setLoading(false);
@@ -94,6 +98,186 @@ class ProductProvider extends ChangeNotifier {
       _setLoading(false);
       notifyListeners();
     }
+  }
+
+  Future<void> _seedInitialProducts() async {
+    final seedItems = [
+      // Plumbing
+      {
+        'name': 'PPR Pipe 20mm (6 Meters)',
+        'category': 'Plumbing',
+        'unit_price': 850.0,
+        'quantity': 50,
+        'min_stock': 10,
+        'unit': 'pcs',
+        'sku': 'PLM-001',
+        'description': 'High quality PPR water pipe 20mm 6M length',
+      },
+      {
+        'name': 'PPR Pipe 25mm (6 Meters)',
+        'category': 'Plumbing',
+        'unit_price': 1100.0,
+        'quantity': 40,
+        'min_stock': 10,
+        'unit': 'pcs',
+        'sku': 'PLM-002',
+        'description': 'High quality PPR water pipe 25mm 6M length',
+      },
+      {
+        'name': 'PPR Equal Tee 20mm',
+        'category': 'Plumbing',
+        'unit_price': 50.0,
+        'quantity': 100,
+        'min_stock': 20,
+        'unit': 'pcs',
+        'sku': 'PLM-003',
+        'description': '20mm equal tee fitting',
+      },
+      {
+        'name': 'PPR Gate Valve 20mm',
+        'category': 'Plumbing',
+        'unit_price': 650.0,
+        'quantity': 25,
+        'min_stock': 5,
+        'unit': 'pcs',
+        'sku': 'PLM-004',
+        'description': 'Brass core PPR gate valve 20mm',
+      },
+      {
+        'name': 'PVC Waste Pipe 4" (3M)',
+        'category': 'Plumbing',
+        'unit_price': 1200.0,
+        'quantity': 30,
+        'min_stock': 5,
+        'unit': 'pcs',
+        'sku': 'PLM-005',
+        'description': '4 inch PVC drainage pipe',
+      },
+      {
+        'name': 'Flexible Water Connector 1/2" (40cm)',
+        'category': 'Plumbing',
+        'unit_price': 350.0,
+        'quantity': 60,
+        'min_stock': 10,
+        'unit': 'pcs',
+        'sku': 'PLM-006',
+        'description': 'Stainless steel braided flexible hose',
+      },
+      {
+        'name': 'Teflon Thread Tape Roll',
+        'category': 'Plumbing',
+        'unit_price': 50.0,
+        'quantity': 200,
+        'min_stock': 30,
+        'unit': 'pcs',
+        'sku': 'PLM-007',
+        'description': 'PTFE thread seal tape for pipe fittings',
+      },
+      // Bathrooms
+      {
+        'name': 'Ceramic Wash Basin with Pedestal',
+        'category': 'Bathrooms',
+        'unit_price': 7500.0,
+        'quantity': 15,
+        'min_stock': 3,
+        'unit': 'set',
+        'sku': 'BTH-001',
+        'description': 'White vitreous china ceramic basin with full pedestal',
+      },
+      {
+        'name': 'Dual Flush Toilet Closet Set',
+        'category': 'Bathrooms',
+        'unit_price': 14500.0,
+        'quantity': 10,
+        'min_stock': 2,
+        'unit': 'set',
+        'sku': 'BTH-002',
+        'description': 'Water-saving dual flush ceramic water closet',
+      },
+      {
+        'name': 'Wall-Mounted Basin Mixer Tap (Chrome)',
+        'category': 'Bathrooms',
+        'unit_price': 3800.0,
+        'quantity': 20,
+        'min_stock': 5,
+        'unit': 'pcs',
+        'sku': 'BTH-003',
+        'description': 'Brass body chrome finish hot/cold mixer tap',
+      },
+      {
+        'name': 'LED Touch Bathroom Mirror 60x80cm',
+        'category': 'Bathrooms',
+        'unit_price': 6200.0,
+        'quantity': 12,
+        'min_stock': 3,
+        'unit': 'pcs',
+        'sku': 'BTH-004',
+        'description': 'Anti-fog LED illuminated wall mirror',
+      },
+      {
+        'name': 'Stainless Steel Floor Drain 10x10cm',
+        'category': 'Bathrooms',
+        'unit_price': 950.0,
+        'quantity': 45,
+        'min_stock': 10,
+        'unit': 'pcs',
+        'sku': 'BTH-005',
+        'description': 'Anti-odour anti-insect stainless steel drain',
+      },
+      // Shower Cubicles
+      {
+        'name': 'Tempered Glass Shower Cubicle (90x90cm)',
+        'category': 'Shower Cubicles',
+        'unit_price': 28500.0,
+        'quantity': 8,
+        'min_stock': 2,
+        'unit': 'set',
+        'sku': 'SHW-001',
+        'description': '6mm safety tempered glass corner shower enclosure',
+      },
+      {
+        'name': 'Sliding Glass Shower Door (120x190cm)',
+        'category': 'Shower Cubicles',
+        'unit_price': 34000.0,
+        'quantity': 6,
+        'min_stock': 2,
+        'unit': 'set',
+        'sku': 'SHW-002',
+        'description': 'Frameless sliding glass shower door panel set',
+      },
+      {
+        'name': 'Rain Shower Head & Handheld Set (Black)',
+        'category': 'Shower Cubicles',
+        'unit_price': 8500.0,
+        'quantity': 15,
+        'min_stock': 3,
+        'unit': 'set',
+        'sku': 'SHW-003',
+        'description': 'Matte black overhead rain shower with hand shower',
+      },
+      {
+        'name': 'Shower Enclosure Stainless Steel Hinges Set',
+        'category': 'Shower Cubicles',
+        'unit_price': 4200.0,
+        'quantity': 20,
+        'min_stock': 5,
+        'unit': 'set',
+        'sku': 'SHW-004',
+        'description': 'Heavy duty glass-to-wall stainless steel hinges',
+      },
+      {
+        'name': 'Acrylic Shower Tray Base (90x90cm)',
+        'category': 'Shower Cubicles',
+        'unit_price': 11000.0,
+        'quantity': 10,
+        'min_stock': 2,
+        'unit': 'pcs',
+        'sku': 'SHW-005',
+        'description': 'Low-profile non-slip white acrylic shower tray',
+      },
+    ];
+
+    await bulkAddProducts(seedItems);
   }
 
   Future<void> refreshProducts() async {

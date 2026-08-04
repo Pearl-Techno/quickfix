@@ -11,6 +11,7 @@ import '../../providers/quote_provider.dart';
 import '../../providers/settings_provider.dart';
 import '../../providers/auth_provider.dart';
 import '../../services/storage_service.dart';
+import '../../services/database_service.dart';
 import '../../models/customer.dart';
 import '../../models/product.dart';
 import '../../models/quote_item.dart';
@@ -32,6 +33,7 @@ class CreateSiteQuote extends StatefulWidget {
 
 class _CreateSiteQuoteState extends State<CreateSiteQuote>
     with SingleTickerProviderStateMixin {
+  final _titleController = TextEditingController();
   final _notesController = TextEditingController();
   final _siteMeasurementsController = TextEditingController();
   final _productSearchController = TextEditingController();
@@ -55,6 +57,11 @@ class _CreateSiteQuoteState extends State<CreateSiteQuote>
   List<Product> _filteredProducts = [];
   String _selectedSection = '';
 
+  String _activeCategoryTab = 'all';
+  final Map<String, bool> _categoryChecked = {};
+  final Map<String, int> _categoryQuantities = {};
+  final Map<String, String> _categoryNotes = {};
+
   final List<QuoteItem> _items = [];
   final List<String> _sections = ['Materials', 'Labour', 'Other'];
   final List<XFile> _photos = [];
@@ -63,6 +70,8 @@ class _CreateSiteQuoteState extends State<CreateSiteQuote>
   double _subtotal = 0;
   double _tax = 0;
   double _total = 0;
+
+  String? _quoteNumber;
 
   bool _isSubmitting = false;
   late AnimationController _animationController;
@@ -90,6 +99,7 @@ class _CreateSiteQuoteState extends State<CreateSiteQuote>
   void dispose() {
     _productSearchController.removeListener(_filterProducts);
     _productSearchController.dispose();
+    _titleController.dispose();
     _notesController.dispose();
     _termsController.dispose();
     _siteMeasurementsController.dispose();
@@ -119,6 +129,8 @@ class _CreateSiteQuoteState extends State<CreateSiteQuote>
     ]);
     if (!mounted) return;
     _filterProducts();
+    _quoteNumber = await DatabaseService().generateQuoteNumber();
+    if (mounted) setState(() {});
   }
 
   void _filterProducts() {
@@ -207,6 +219,70 @@ class _CreateSiteQuoteState extends State<CreateSiteQuote>
     });
 
     Helpers.showSuccess(context, 'Item added${_selectedSection.isNotEmpty ? ' to $_selectedSection' : ''}');
+  }
+
+  void _addCategoryChecklistItems(List<Product> categoryProducts) {
+    if (_selectedCustomer == null && !_useDirectClient) {
+      Helpers.showError(context, 'Please select a customer first');
+      return;
+    }
+
+    final checkedProducts =
+        categoryProducts.where((p) => _categoryChecked[p.id] == true).toList();
+    if (checkedProducts.isEmpty) {
+      Helpers.showError(
+        context,
+        'Please check at least one item from $_activeCategoryTab',
+      );
+      return;
+    }
+
+    final effectiveSection = _selectedSection.trim().isNotEmpty
+        ? _selectedSection
+        : _activeCategoryTab;
+
+    int addedCount = 0;
+    for (final product in checkedProducts) {
+      final qty = _categoryQuantities[product.id] ?? 1;
+      if (qty <= 0) continue;
+
+      final extraNote = _categoryNotes[product.id]?.trim() ?? '';
+      String desc = product.name;
+      if (extraNote.isNotEmpty) {
+        desc += ' - $extraNote';
+      }
+
+      final item = QuoteItem(
+        id: Helpers.generateId(),
+        quoteId: '',
+        productId: product.id,
+        itemType: Constants.itemTypeStock,
+        description: desc,
+        quantity: qty,
+        unitPrice: product.unitPrice,
+        total: product.unitPrice * qty,
+        section: effectiveSection,
+      );
+
+      _items.add(item);
+      addedCount++;
+    }
+
+    if (addedCount > 0) {
+      setState(() {
+        if (!_sections.contains(effectiveSection)) {
+          _sections.add(effectiveSection);
+        }
+        _calculateTotals();
+        _categoryChecked.clear();
+        _categoryQuantities.clear();
+        _categoryNotes.clear();
+      });
+      Helpers.showSuccess(
+        context,
+        'Added $addedCount item(s) to $effectiveSection',
+      );
+    }
   }
 
   void _removeItem(int index) {
@@ -323,6 +399,9 @@ class _CreateSiteQuoteState extends State<CreateSiteQuote>
       customerId: targetCustomer!.id,
       userId: userId,
       items: items,
+      title: _titleController.text.trim().isEmpty
+          ? null
+          : _titleController.text.trim(),
       scope: scope,
       notes: notes,
       terms: _termsController.text.trim().isEmpty ? null : _termsController.text.trim(),
@@ -386,6 +465,8 @@ class _CreateSiteQuoteState extends State<CreateSiteQuote>
       'subtotal': _subtotal,
       'tax': _tax,
       'total': _total,
+      if (_quoteNumber != null) 'quoteNumber': _quoteNumber,
+      'title': _titleController.text.trim(),
       'scope': _scopeController.text.trim(),
       'notes': _notesController.text.trim(),
       'terms': _termsController.text.trim(),
@@ -578,7 +659,7 @@ class _CreateSiteQuoteState extends State<CreateSiteQuote>
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  'Site Visit',
+                  'Site Visit Quote',
                   style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
                 ),
                 Text(
@@ -588,6 +669,37 @@ class _CreateSiteQuoteState extends State<CreateSiteQuote>
               ],
             ),
           ),
+          if (_quoteNumber != null && _quoteNumber!.isNotEmpty)
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+              decoration: BoxDecoration(
+                color: AppColors.primary,
+                borderRadius: BorderRadius.circular(8),
+                boxShadow: [
+                  BoxShadow(
+                    color: AppColors.primary.withValues(alpha: 0.3),
+                    blurRadius: 4,
+                    offset: const Offset(0, 2),
+                  ),
+                ],
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Icon(Icons.numbers, size: 14, color: Colors.white),
+                  const SizedBox(width: 4),
+                  Text(
+                    _quoteNumber!,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.bold,
+                      fontSize: 13,
+                      letterSpacing: 0.5,
+                    ),
+                  ),
+                ],
+              ),
+            ),
         ],
       ),
     );
@@ -813,6 +925,25 @@ class _CreateSiteQuoteState extends State<CreateSiteQuote>
                             style: const TextStyle(
                               fontSize: 12,
                               color: AppColors.textLight,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                    if (_selectedCustomer!.hasRemarks) ...[
+                      const SizedBox(height: 6),
+                      Row(
+                        children: [
+                          const Icon(Icons.comment, size: 14, color: AppColors.primary),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              'Remarks: ${_selectedCustomer!.remarks!}',
+                              style: const TextStyle(
+                                fontSize: 12,
+                                fontWeight: FontWeight.w500,
+                                color: AppColors.primary,
+                              ),
                             ),
                           ),
                         ],
@@ -1120,7 +1251,335 @@ class _CreateSiteQuoteState extends State<CreateSiteQuote>
     );
   }
 
+  Widget _buildCategoryTabChip(String id, String label, IconData icon) {
+    final isSelected = _activeCategoryTab.toLowerCase() == id.toLowerCase();
+    return InkWell(
+      onTap: () {
+        setState(() {
+          _activeCategoryTab = id;
+        });
+      },
+      borderRadius: BorderRadius.circular(20),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 200),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+        decoration: BoxDecoration(
+          color: isSelected ? AppColors.primary : Colors.white,
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(
+            color: isSelected ? AppColors.primary : AppColors.border,
+            width: 1.5,
+          ),
+          boxShadow: isSelected
+              ? [
+                  BoxShadow(
+                    color: AppColors.primary.withValues(alpha: 0.3),
+                    blurRadius: 4,
+                    offset: const Offset(0, 2),
+                  )
+                ]
+              : null,
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              icon,
+              size: 16,
+              color: isSelected ? Colors.white : AppColors.primary,
+            ),
+            const SizedBox(width: 6),
+            Text(
+              label,
+              style: TextStyle(
+                fontSize: 12,
+                fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
+                color: isSelected ? Colors.white : AppColors.text,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildCategoryChecklistView(List<Product> allProducts) {
+    final categoryQuery = _activeCategoryTab.toLowerCase();
+
+    final matchingProducts = allProducts.where((p) {
+      final pCat = p.category.toLowerCase();
+      final pName = p.name.toLowerCase();
+      if (categoryQuery == 'plumbing') {
+        return pCat.contains('plumb') || pName.contains('plumb') || pCat.contains('pipe') || pCat.contains('fitting') || pCat.contains('valve');
+      }
+      if (categoryQuery == 'bathrooms') {
+        return pCat.contains('bath') || pName.contains('basin') || pName.contains('toilet') || pName.contains('tap') || pName.contains('mirror');
+      }
+      if (categoryQuery == 'shower cubicles' || categoryQuery == 'shower cubicals') {
+        return pCat.contains('shower') || pName.contains('shower') || pName.contains('cubicle') || pName.contains('enclosure') || pName.contains('glass');
+      }
+      return pCat == categoryQuery || pCat.contains(categoryQuery);
+    }).toList();
+
+    int totalChecked = 0;
+    double checkedTotalCost = 0;
+    for (final p in matchingProducts) {
+      if (_categoryChecked[p.id] == true) {
+        totalChecked++;
+        final qty = _categoryQuantities[p.id] ?? 1;
+        checkedTotalCost += p.unitPrice * qty;
+      }
+    }
+
+    if (matchingProducts.isEmpty) {
+      return Container(
+        width: double.infinity,
+        padding: const EdgeInsets.all(20),
+        decoration: BoxDecoration(
+          color: AppColors.background,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: AppColors.border),
+        ),
+        child: Column(
+          children: [
+            const Icon(Icons.inventory_2_outlined, size: 40, color: AppColors.textLight),
+            const SizedBox(height: 8),
+            Text(
+              'No items in database for "$_activeCategoryTab"',
+              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+            ),
+            const SizedBox(height: 4),
+            const Text(
+              'You can create items under this category in Inventory, or use Custom item entry.',
+              textAlign: TextAlign.center,
+              style: TextStyle(fontSize: 12, color: AppColors.textLight),
+            ),
+            const SizedBox(height: 12),
+            ElevatedButton.icon(
+              onPressed: () {
+                setState(() {
+                  _activeCategoryTab = 'all';
+                  _itemType = Constants.itemTypeStock;
+                });
+              },
+              icon: const Icon(Icons.add, size: 16),
+              label: const Text('Add Custom Item Instead'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppColors.primary,
+                foregroundColor: Colors.white,
+                minimumSize: Size.zero,
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          decoration: BoxDecoration(
+            color: AppColors.primary.withValues(alpha: 0.08),
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(color: AppColors.primary.withValues(alpha: 0.2)),
+          ),
+          child: Row(
+            children: [
+              const Icon(Icons.checklist, color: AppColors.primary, size: 20),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  '$_activeCategoryTab Checklist — Check items & specify quantity:',
+                  style: const TextStyle(
+                    fontWeight: FontWeight.bold,
+                    fontSize: 13,
+                    color: AppColors.primary,
+                  ),
+                ),
+              ),
+              Text(
+                '${matchingProducts.length} available',
+                style: const TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w600,
+                  color: AppColors.textLight,
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 10),
+
+        // Items Checklist
+        ListView.separated(
+          shrinkWrap: true,
+          physics: const NeverScrollableScrollPhysics(),
+          itemCount: matchingProducts.length,
+          separatorBuilder: (context, index) => const Divider(height: 1),
+          itemBuilder: (context, index) {
+            final product = matchingProducts[index];
+            final isChecked = _categoryChecked[product.id] ?? false;
+            final currentQty = _categoryQuantities[product.id] ?? 1;
+
+            return Container(
+              padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 4),
+              decoration: BoxDecoration(
+                color: isChecked ? AppColors.primary.withValues(alpha: 0.05) : Colors.transparent,
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Checkbox(
+                        value: isChecked,
+                        activeColor: AppColors.primary,
+                        onChanged: (val) {
+                          setState(() {
+                            _categoryChecked[product.id] = val ?? false;
+                            if (val == true && !_categoryQuantities.containsKey(product.id)) {
+                              _categoryQuantities[product.id] = 1;
+                            }
+                          });
+                        },
+                      ),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              product.name,
+                              style: TextStyle(
+                                fontWeight: FontWeight.bold,
+                                fontSize: 13,
+                                color: isChecked ? AppColors.primary : AppColors.text,
+                              ),
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              '${Formatters.currency(product.unitPrice)} / ${product.unit ?? 'pcs'} ${product.sku != null && product.sku!.isNotEmpty ? '• SKU: ${product.sku}' : ''}',
+                              style: const TextStyle(fontSize: 11, color: AppColors.textLight),
+                            ),
+                          ],
+                        ),
+                      ),
+
+                      // Quantity Controls
+                      if (isChecked)
+                        Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            IconButton(
+                              icon: const Icon(Icons.remove_circle_outline, size: 20),
+                              color: AppColors.primary,
+                              onPressed: () {
+                                if (currentQty > 1) {
+                                  setState(() {
+                                    _categoryQuantities[product.id] = currentQty - 1;
+                                  });
+                                }
+                              },
+                            ),
+                            Container(
+                              width: 36,
+                              height: 30,
+                              alignment: Alignment.center,
+                              decoration: BoxDecoration(
+                                border: Border.all(color: AppColors.border),
+                                borderRadius: BorderRadius.circular(6),
+                                color: Colors.white,
+                              ),
+                              child: Text(
+                                '$currentQty',
+                                style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+                              ),
+                            ),
+                            IconButton(
+                              icon: const Icon(Icons.add_circle_outline, size: 20),
+                              color: AppColors.primary,
+                              onPressed: () {
+                                setState(() {
+                                  _categoryQuantities[product.id] = currentQty + 1;
+                                });
+                              },
+                            ),
+                          ],
+                        ),
+                    ],
+                  ),
+                ],
+              ),
+            );
+          },
+        ),
+
+        const SizedBox(height: 16),
+        // Add Button
+        Container(
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(color: AppColors.border),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.04),
+                blurRadius: 6,
+                offset: const Offset(0, 2),
+              ),
+            ],
+          ),
+          child: Row(
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      '$totalChecked item(s) checked',
+                      style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+                    ),
+                    Text(
+                      'Subtotal: ${Formatters.currency(checkedTotalCost)}',
+                      style: const TextStyle(fontSize: 12, color: AppColors.primary, fontWeight: FontWeight.w600),
+                    ),
+                  ],
+                ),
+              ),
+              ElevatedButton.icon(
+                onPressed: totalChecked > 0 ? () => _addCategoryChecklistItems(matchingProducts) : null,
+                icon: const Icon(Icons.add_shopping_cart, size: 18),
+                label: Text('Add $totalChecked to Quote'),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: AppColors.primary,
+                  foregroundColor: Colors.white,
+                  minimumSize: const Size(0, 42),
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
   Widget _buildAddItemsCard() {
+    final productProvider = context.watch<ProductProvider>();
+    final allCategories = productProvider.getCategories();
+
+    final List<String> featuredCategories = ['Plumbing', 'Bathrooms', 'Shower Cubicles'];
+    for (final cat in allCategories) {
+      if (!featuredCategories.any((fc) => fc.toLowerCase() == cat.toLowerCase())) {
+        featuredCategories.add(cat);
+      }
+    }
+
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: _cardDecoration(),
@@ -1143,7 +1602,7 @@ class _CreateSiteQuoteState extends State<CreateSiteQuote>
               ),
               const SizedBox(width: 10),
               const Text(
-                'Add Items',
+                'Add Items to Quote',
                 style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
               ),
               const Spacer(),
@@ -1169,6 +1628,7 @@ class _CreateSiteQuoteState extends State<CreateSiteQuote>
             ],
           ),
           const Divider(height: 20),
+
           if (_sections.isNotEmpty) ...[
             CustomDropdown<String>(
               value: _selectedSection.isEmpty ? null : _selectedSection,
@@ -1203,9 +1663,9 @@ class _CreateSiteQuoteState extends State<CreateSiteQuote>
                   ),
                 );
               }).toList(),
-              label: 'Select Section (Optional)',
+              label: 'Target Section (Optional)',
               isRequired: false,
-              hint: 'Choose a section for items (Optional)',
+              hint: 'Choose quote section (Optional)',
               onChanged: (value) {
                 if (value != null) {
                   setState(() {
@@ -1215,205 +1675,245 @@ class _CreateSiteQuoteState extends State<CreateSiteQuote>
               },
               prefixIcon: const Icon(Icons.folder_open, size: 20),
             ),
-            const SizedBox(height: 12),
+            const SizedBox(height: 16),
           ],
-          // Item Type Selection
-          Row(
-            children: [
-              Text(
-                'Item Type',
-                style: TextStyle(
-                  fontSize: 13,
-                  fontWeight: FontWeight.w600,
-                  color: AppColors.text,
-                ),
-              ),
-            ],
+
+          // Quick Category Selection Tabs
+          const Text(
+            'Select Category / Mode:',
+            style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
           ),
-          const SizedBox(height: 6),
-          Row(
-            children: [
-              _buildTypeTab(Constants.itemTypeStock, 'Stock Item'),
-              _buildTypeTab(Constants.itemTypeService, 'Labour'),
-              _buildTypeTab(Constants.itemTypeOutsourced, 'Other'),
-            ],
+          const SizedBox(height: 8),
+          SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: Row(
+              children: [
+                _buildCategoryTabChip('all', 'Custom / Single Item', Icons.search),
+                const SizedBox(width: 8),
+                _buildCategoryTabChip('Plumbing', 'Plumbing 🚰', Icons.plumbing),
+                const SizedBox(width: 8),
+                _buildCategoryTabChip('Bathrooms', 'Bathrooms 🚽', Icons.bathtub),
+                const SizedBox(width: 8),
+                _buildCategoryTabChip('Shower Cubicles', 'Shower Cubicles 🚿', Icons.shower),
+                ...featuredCategories
+                    .where((c) => !['plumbing', 'bathrooms', 'shower cubicles', 'shower cubicals'].contains(c.toLowerCase()))
+                    .map((c) => Padding(
+                          padding: const EdgeInsets.only(left: 8),
+                          child: _buildCategoryTabChip(c, c, Icons.category),
+                        )),
+              ],
+            ),
           ),
           const SizedBox(height: 16),
 
-          if (_itemType == Constants.itemTypeStock) ...[
-            // Product Search
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+          if (_activeCategoryTab != 'all')
+            _buildCategoryChecklistView(productProvider.allProducts)
+          else ...[
+            // Item Type Selection
+            Row(
               children: [
-                const Text(
-                  'Product *',
+                Text(
+                  'Item Type',
                   style: TextStyle(
                     fontSize: 13,
                     fontWeight: FontWeight.w600,
                     color: AppColors.text,
                   ),
                 ),
-                const SizedBox(height: 4),
-                Container(
-                  decoration: BoxDecoration(
-                    border: Border.all(color: AppColors.border),
-                    borderRadius: BorderRadius.circular(8),
+              ],
+            ),
+            const SizedBox(height: 6),
+            Row(
+              children: [
+                _buildTypeTab(Constants.itemTypeStock, 'Stock Item'),
+                _buildTypeTab(Constants.itemTypeService, 'Labour'),
+                _buildTypeTab(Constants.itemTypeOutsourced, 'Other'),
+              ],
+            ),
+            const SizedBox(height: 16),
+
+            if (_itemType == Constants.itemTypeStock) ...[
+              // Product Search
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'Product *',
+                    style: TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                      color: AppColors.text,
+                    ),
                   ),
-                  child: Column(
-                    children: [
-                      TextField(
-                        controller: _productSearchController,
-                        decoration: InputDecoration(
-                          hintText: 'Search products...',
-                          prefixIcon: const Icon(
-                            Icons.search,
-                            size: 18,
-                            color: AppColors.textLight,
-                          ),
-                          suffixIcon:
-                              _productSearchController.text.isNotEmpty
-                              ? IconButton(
-                                  icon: const Icon(
-                                    Icons.clear,
-                                    size: 18,
-                                    color: AppColors.textLight,
-                                  ),
-                                  onPressed: () {
-                                    _productSearchController.clear();
-                                    setState(() {});
-                                  },
-                                )
-                              : null,
-                          border: InputBorder.none,
-                          contentPadding: const EdgeInsets.symmetric(
-                            horizontal: 12,
-                            vertical: 10,
-                          ),
-                        ),
-                      ),
-                      Container(
-                        constraints: const BoxConstraints(
-                          maxHeight: 150,
-                        ),
-                        child: _filteredProducts.isEmpty
-                            ? const Center(
-                                child: Padding(
-                                  padding: EdgeInsets.all(12),
-                                  child: Text(
-                                    'No products found',
-                                    style: TextStyle(
+                  const SizedBox(height: 4),
+                  Container(
+                    decoration: BoxDecoration(
+                      border: Border.all(color: AppColors.border),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Column(
+                      children: [
+                        TextField(
+                          controller: _productSearchController,
+                          decoration: InputDecoration(
+                            hintText: 'Search products...',
+                            prefixIcon: const Icon(
+                              Icons.search,
+                              size: 18,
+                              color: AppColors.textLight,
+                            ),
+                            suffixIcon:
+                                _productSearchController.text.isNotEmpty
+                                ? IconButton(
+                                    icon: const Icon(
+                                      Icons.clear,
+                                      size: 18,
                                       color: AppColors.textLight,
-                                      fontSize: 13,
+                                    ),
+                                    onPressed: () {
+                                      _productSearchController.clear();
+                                      setState(() {});
+                                    },
+                                  )
+                                : null,
+                            border: InputBorder.none,
+                            contentPadding: const EdgeInsets.symmetric(
+                              horizontal: 12,
+                              vertical: 10,
+                            ),
+                          ),
+                        ),
+                        Container(
+                          constraints: const BoxConstraints(
+                            maxHeight: 150,
+                          ),
+                          child: _filteredProducts.isEmpty
+                              ? const Center(
+                                  child: Padding(
+                                    padding: EdgeInsets.all(12),
+                                    child: Text(
+                                      'No products found',
+                                      style: TextStyle(
+                                        color: AppColors.textLight,
+                                        fontSize: 13,
+                                      ),
                                     ),
                                   ),
-                                ),
-                              )
-                            : ListView.builder(
-                                shrinkWrap: true,
-                                physics:
-                                    const ClampingScrollPhysics(),
-                                itemCount: _filteredProducts.length,
-                                itemBuilder: (context, index) {
-                                  final product =
-                                      _filteredProducts[index];
-                                  final isSelected =
-                                      _selectedProduct?.id ==
-                                      product.id;
-                                  return InkWell(
-                                    onTap: () {
-                                      setState(() {
-                                        _selectedProduct = product;
-                                        _productSearchController
-                                                .text =
-                                            product.name;
-                                      });
-                                    },
-                                    child: Container(
-                                      padding:
-                                          const EdgeInsets.symmetric(
-                                            horizontal: 12,
-                                            vertical: 8,
-                                          ),
-                                      decoration: BoxDecoration(
-                                        color: isSelected
-                                            ? AppColors.primary
+                                )
+                              : ListView.builder(
+                                  shrinkWrap: true,
+                                  physics:
+                                      const ClampingScrollPhysics(),
+                                  itemCount: _filteredProducts.length,
+                                  itemBuilder: (context, index) {
+                                    final product =
+                                        _filteredProducts[index];
+                                    final isSelected =
+                                        _selectedProduct?.id ==
+                                        product.id;
+                                    return InkWell(
+                                      onTap: () {
+                                        setState(() {
+                                          _selectedProduct = product;
+                                          _productSearchController
+                                                  .text =
+                                              product.name;
+                                        });
+                                      },
+                                      child: Container(
+                                        padding:
+                                            const EdgeInsets.symmetric(
+                                              horizontal: 12,
+                                              vertical: 8,
+                                            ),
+                                        decoration: BoxDecoration(
+                                          color: isSelected
+                                              ? AppColors.primary
+                                                    .withValues(
+                                                      alpha: 0.1,
+                                                    )
+                                              : Colors.transparent,
+                                          border: Border(
+                                            bottom: BorderSide(
+                                              color: AppColors.border
                                                   .withValues(
-                                                    alpha: 0.1,
-                                                  )
-                                            : Colors.transparent,
-                                        border: Border(
-                                          bottom: BorderSide(
-                                            color: AppColors.border
-                                                .withValues(
-                                                  alpha: 0.3,
-                                                ),
+                                                    alpha: 0.3,
+                                                  ),
+                                            ),
+                                          ),
+                                        ),
+                                        child: Text(
+                                          '${product.name} (${Formatters.currency(product.unitPrice)})',
+                                          style: TextStyle(
+                                            fontSize: 13,
+                                            fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
                                           ),
                                         ),
                                       ),
-                                    ),
-                                  );
-                                },
-                              ),
-                      ),
-                    ],
+                                    );
+                                  },
+                                ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              
+              // Further Description (Always visible below product search)
+              CustomTextField(
+                controller: _furtherDescriptionController,
+                label: 'Further Description (optional)',
+                hint: 'Add extra details, specifications, etc.',
+                prefixIcon: const Icon(Icons.description, size: 20),
+              ),
+            ] else ...[
+              // Custom item description
+              CustomTextField(
+                controller: _customDescriptionController,
+                label: _itemType == Constants.itemTypeService ? 'Service / Labour Description *' : 'Item / Service Description *',
+                hint: _itemType == Constants.itemTypeService ? 'e.g., General plumbing installation' : 'e.g., Site delivery / Miscellaneous',
+                prefixIcon: Icon(
+                  _itemType == Constants.itemTypeService ? Icons.design_services : Icons.miscellaneous_services,
+                  size: 18,
+                ),
+              ),
+              const SizedBox(height: 12),
+              // Custom item unit price / fee
+              CustomTextField(
+                controller: _customUnitPriceController,
+                label: _itemType == Constants.itemTypeService ? 'Labour Fee / Rate (KSh) *' : 'Cost (KSh) *',
+                hint: '0.00',
+                keyboardType: TextInputType.number,
+                prefixIcon: const Icon(Icons.attach_money, size: 18),
+              ),
+            ],
+            const SizedBox(height: 12),
+
+            // Quantity & Add Row
+            Row(
+              children: [
+                Expanded(
+                  flex: 2,
+                  child: CustomTextField(
+                    controller: _quantityController,
+                    label: _itemType == Constants.itemTypeService ? 'Hours / Units' : 'Quantity',
+                    keyboardType: TextInputType.number,
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  flex: 3,
+                  child: CustomButton(
+                    text: 'Add to Quote',
+                    onPressed: _addItem,
+                    icon: Icons.add,
                   ),
                 ),
               ],
             ),
-            const SizedBox(height: 12),
-            
-            // Further Description (Always visible below product search)
-            CustomTextField(
-              controller: _furtherDescriptionController,
-              label: 'Further Description (optional)',
-              hint: 'Add extra details, specifications, etc.',
-              prefixIcon: const Icon(Icons.description, size: 20),
-            ),
-          ] else ...[
-            // Custom item description
-            CustomTextField(
-              controller: _customDescriptionController,
-              label: _itemType == Constants.itemTypeService ? 'Service / Labour Description *' : 'Item / Service Description *',
-              hint: _itemType == Constants.itemTypeService ? 'e.g., General plumbing installation' : 'e.g., Site delivery / Miscellaneous',
-              prefixIcon: Icon(
-                _itemType == Constants.itemTypeService ? Icons.design_services : Icons.miscellaneous_services,
-                size: 18,
-              ),
-            ),
-            const SizedBox(height: 12),
-            // Custom item unit price / fee
-            CustomTextField(
-              controller: _customUnitPriceController,
-              label: _itemType == Constants.itemTypeService ? 'Labour Fee / Rate (KSh) *' : 'Cost (KSh) *',
-              hint: '0.00',
-              keyboardType: TextInputType.number,
-              prefixIcon: const Icon(Icons.attach_money, size: 18),
-            ),
           ],
-          const SizedBox(height: 12),
-
-          // Quantity & Add Row
-          Row(
-            children: [
-              Expanded(
-                flex: 2,
-                child: CustomTextField(
-                  controller: _quantityController,
-                  label: _itemType == Constants.itemTypeService ? 'Hours / Units' : 'Quantity',
-                  keyboardType: TextInputType.number,
-                ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                flex: 3,
-                child: CustomButton(
-                  text: 'Add to Quote',
-                  onPressed: _addItem,
-                  icon: Icons.add,
-                ),
-              ),
-            ],
-          ),
         ],
       ),
     );
@@ -1712,6 +2212,13 @@ class _CreateSiteQuoteState extends State<CreateSiteQuote>
             ],
           ),
           const Divider(height: 20),
+          CustomTextField(
+            controller: _titleController,
+            label: 'Quotation Title / Subject',
+            hint: 'What is this quotation for? (e.g. Water Heater Installation)',
+            prefixIcon: const Icon(Icons.title, size: 20),
+          ),
+          const SizedBox(height: 12),
           _buildDueDateField(),
           const SizedBox(height: 12),
           CustomTextField(

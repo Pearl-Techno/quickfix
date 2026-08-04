@@ -169,7 +169,20 @@ class QuoteCard extends StatelessWidget {
             ),
           ],
         ),
-        const SizedBox(height: 12),
+        if (quote.hasTitle) ...[
+          const SizedBox(height: 6),
+          Text(
+            quote.title!,
+            style: const TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.w600,
+              color: AppColors.primary,
+            ),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          ),
+        ],
+        const SizedBox(height: 10),
 
         // Customer info
         Row(
@@ -420,6 +433,19 @@ class QuoteCard extends StatelessWidget {
                   ),
                 ],
               ),
+              if (quote.hasTitle) ...[
+                const SizedBox(height: 2),
+                Text(
+                  quote.title!,
+                  style: const TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w600,
+                    color: AppColors.primary,
+                  ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ],
               const SizedBox(height: 2),
               Row(
                 children: [

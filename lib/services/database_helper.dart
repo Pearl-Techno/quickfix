@@ -62,7 +62,7 @@ class DatabaseHelper {
 
     return await openDatabase(
       path,
-      version: 6,
+      version: 8,
       onCreate: _onCreate,
       onUpgrade: _onUpgrade,
       onConfigure: (db) async {
@@ -102,6 +102,7 @@ class DatabaseHelper {
         address TEXT,
         site_location TEXT,
         site_notes TEXT,
+        remarks TEXT,
         created_at TEXT,
         updated_at TEXT
       )
@@ -147,6 +148,7 @@ class DatabaseHelper {
         quote_number TEXT NOT NULL UNIQUE,
         customer_id TEXT NOT NULL,
         user_id TEXT,
+        title TEXT,
         status TEXT NOT NULL DEFAULT 'draft',
         subtotal REAL DEFAULT 0,
         tax REAL DEFAULT 0,
@@ -435,6 +437,24 @@ class DatabaseHelper {
         _log('✅ Database upgraded to version 6 (system_logs & approval_requests)');
       } catch (e) {
         _log('⚠️ Error during upgrade to version 6: $e');
+      }
+    }
+
+    if (oldVersion < 7) {
+      try {
+        await db.execute('ALTER TABLE quotes ADD COLUMN title TEXT');
+        _log('✅ Database upgraded to version 7 (added title column to quotes)');
+      } catch (e) {
+        _log('⚠️ Error during upgrade to version 7: $e');
+      }
+    }
+
+    if (oldVersion < 8) {
+      try {
+        await db.execute('ALTER TABLE customers ADD COLUMN remarks TEXT');
+        _log('✅ Database upgraded to version 8 (added remarks column to customers)');
+      } catch (e) {
+        _log('⚠️ Error during upgrade to version 8: $e');
       }
     }
   }

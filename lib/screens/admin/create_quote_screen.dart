@@ -11,6 +11,7 @@ import '../../providers/quote_provider.dart';
 import '../../providers/invoice_provider.dart';
 import '../../providers/settings_provider.dart';
 import '../../providers/auth_provider.dart';
+import '../../services/database_service.dart';
 import '../../models/customer.dart';
 import '../../models/product.dart';
 import '../../models/quote.dart';
@@ -78,6 +79,7 @@ class CreateQuoteScreen extends StatefulWidget {
 
 class _CreateQuoteScreenState extends State<CreateQuoteScreen>
     with SingleTickerProviderStateMixin {
+  final _titleController = TextEditingController();
   final _notesController = TextEditingController();
   final _siteMeasurementsController = TextEditingController();
   final _productSearchController = TextEditingController();
@@ -88,12 +90,18 @@ class _CreateQuoteScreenState extends State<CreateQuoteScreen>
   final _customUnitPriceController = TextEditingController();
   final _discountController = TextEditingController();
 
+  String? _existingQuoteNumber;
+
   Customer? _selectedCustomer;
   Product? _selectedProduct;
   String _itemType = Constants.itemTypeStock;
   List<Product> _filteredProducts = [];
   bool _applyTax = false;
   String _selectedSection = '';
+  String _activeCategoryTab = 'all';
+  final Map<String, bool> _categoryChecked = {};
+  final Map<String, int> _categoryQuantities = {};
+  final Map<String, String> _categoryNotes = {};
   bool _isSubmitting = false;
   bool _useCustomPrice = false;
   final _customPriceController = TextEditingController();
@@ -139,6 +147,7 @@ class _CreateQuoteScreenState extends State<CreateQuoteScreen>
   void dispose() {
     _productSearchController.removeListener(_filterProducts);
     _productSearchController.dispose();
+    _titleController.dispose();
     _notesController.dispose();
     _siteMeasurementsController.dispose();
     _sectionNameController.dispose();
@@ -186,6 +195,8 @@ class _CreateQuoteScreenState extends State<CreateQuoteScreen>
             email: '',
           ),
         );
+        _existingQuoteNumber = quote.quoteNumber;
+        _titleController.text = quote.title ?? '';
         _scopeController.text = quote.scope ?? '';
         _notesController.text = quote.notes ?? '';
         _termsController.text = quote.terms ?? '';
@@ -219,6 +230,8 @@ class _CreateQuoteScreenState extends State<CreateQuoteScreen>
       _sections.clear();
       _sections.addAll(['Materials', 'Labour', 'Other']);
       _selectedSection = '';
+      _existingQuoteNumber = await DatabaseService().generateQuoteNumber();
+      if (mounted) setState(() {});
     }
   }
 
@@ -387,6 +400,72 @@ class _CreateQuoteScreenState extends State<CreateQuoteScreen>
     });
   }
 
+  void _addCategoryChecklistItems(List<Product> categoryProducts) {
+    if (_selectedCustomer == null && !_useDirectClient) {
+      Helpers.showError(context, 'Please select a customer first');
+      return;
+    }
+
+    final checkedProducts =
+        categoryProducts.where((p) => _categoryChecked[p.id] == true).toList();
+    if (checkedProducts.isEmpty) {
+      Helpers.showError(
+        context,
+        'Please check at least one item from $_activeCategoryTab',
+      );
+      return;
+    }
+
+    final effectiveSection = _selectedSection.trim().isNotEmpty
+        ? _selectedSection
+        : _activeCategoryTab;
+
+    int addedCount = 0;
+    for (final product in checkedProducts) {
+      final qty = _categoryQuantities[product.id] ?? 1;
+      if (qty <= 0) continue;
+
+      final extraNote = _categoryNotes[product.id]?.trim() ?? '';
+      String desc = product.name;
+      if (extraNote.isNotEmpty) {
+        desc += ' - $extraNote';
+      }
+
+      final item = ExtendedQuoteItem(
+        id: Helpers.generateId(),
+        quoteId: '',
+        productId: product.id,
+        itemType: Constants.itemTypeStock,
+        description: desc,
+        quantity: qty,
+        unitPrice: product.unitPrice,
+        discount: 0,
+        total: product.unitPrice * qty,
+        section: effectiveSection,
+        isPriceEdited: false,
+      );
+
+      _items.add(item);
+      addedCount++;
+    }
+
+    if (addedCount > 0) {
+      setState(() {
+        if (!_sections.contains(effectiveSection)) {
+          _sections.add(effectiveSection);
+        }
+        _calculateTotals();
+        _categoryChecked.clear();
+        _categoryQuantities.clear();
+        _categoryNotes.clear();
+      });
+      Helpers.showSuccess(
+        context,
+        'Added $addedCount item(s) to $effectiveSection',
+      );
+    }
+  }
+
   void _removeItem(int index) {
     setState(() {
       _items.removeAt(index);
@@ -441,6 +520,8 @@ class _CreateQuoteScreenState extends State<CreateQuoteScreen>
       'subtotal': _subtotal,
       'tax': _tax,
       'total': _total,
+      if (_existingQuoteNumber != null) 'quoteNumber': _existingQuoteNumber,
+      'title': _titleController.text.trim(),
       'scope': _scopeController.text.trim(),
       'notes': _notesController.text.trim(),
       'siteMeasurements': _siteMeasurementsController.text.trim(),
@@ -572,6 +653,9 @@ class _CreateQuoteScreenState extends State<CreateQuoteScreen>
       quote = await quoteProvider.updateQuote(
         quoteId: widget.quoteId!,
         items: quoteItems,
+        title: _titleController.text.trim().isEmpty
+            ? null
+            : _titleController.text.trim(),
         scope: _scopeController.text.trim().isEmpty
             ? null
             : _scopeController.text.trim(),
@@ -592,6 +676,9 @@ class _CreateQuoteScreenState extends State<CreateQuoteScreen>
         customerId: targetCustomer!.id,
         userId: authProvider.currentUser!.id,
         items: quoteItems,
+        title: _titleController.text.trim().isEmpty
+            ? null
+            : _titleController.text.trim(),
         scope: _scopeController.text.trim().isEmpty
             ? null
             : _scopeController.text.trim(),
@@ -828,21 +915,52 @@ class _CreateQuoteScreenState extends State<CreateQuoteScreen>
             ),
           ),
           const SizedBox(width: 14),
-          const Expanded(
+          Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  'Create New Quote',
-                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                  widget.quoteId != null ? 'Edit Quotation' : 'Create New Quotation',
+                  style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
                 ),
-                Text(
+                const Text(
                   'Select customer, add sections and items',
                   style: TextStyle(fontSize: 13, color: AppColors.textLight),
                 ),
               ],
             ),
           ),
+          if (_existingQuoteNumber != null && _existingQuoteNumber!.isNotEmpty)
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+              decoration: BoxDecoration(
+                color: AppColors.primary,
+                borderRadius: BorderRadius.circular(8),
+                boxShadow: [
+                  BoxShadow(
+                    color: AppColors.primary.withValues(alpha: 0.3),
+                    blurRadius: 4,
+                    offset: const Offset(0, 2),
+                  ),
+                ],
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Icon(Icons.numbers, size: 14, color: Colors.white),
+                  const SizedBox(width: 4),
+                  Text(
+                    _existingQuoteNumber!,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.bold,
+                      fontSize: 13,
+                      letterSpacing: 0.5,
+                    ),
+                  ),
+                ],
+              ),
+            ),
         ],
       ),
     );
@@ -1058,6 +1176,25 @@ class _CreateQuoteScreenState extends State<CreateQuoteScreen>
                             style: const TextStyle(
                               fontSize: 12,
                               color: AppColors.textLight,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                    if (_selectedCustomer!.hasRemarks) ...[
+                      const SizedBox(height: 6),
+                      Row(
+                        children: [
+                          const Icon(Icons.comment, size: 14, color: AppColors.primary),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              'Remarks: ${_selectedCustomer!.remarks!}',
+                              style: const TextStyle(
+                                fontSize: 12,
+                                fontWeight: FontWeight.w500,
+                                color: AppColors.primary,
+                              ),
                             ),
                           ),
                         ],
@@ -1292,7 +1429,333 @@ class _CreateQuoteScreenState extends State<CreateQuoteScreen>
     );
   }
 
+  Widget _buildCategoryTabChip(String id, String label, IconData icon) {
+    final isSelected = _activeCategoryTab.toLowerCase() == id.toLowerCase();
+    return InkWell(
+      onTap: () {
+        setState(() {
+          _activeCategoryTab = id;
+        });
+      },
+      borderRadius: BorderRadius.circular(20),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 200),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+        decoration: BoxDecoration(
+          color: isSelected ? AppColors.primary : Colors.white,
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(
+            color: isSelected ? AppColors.primary : AppColors.border,
+            width: 1.5,
+          ),
+          boxShadow: isSelected
+              ? [
+                  BoxShadow(
+                    color: AppColors.primary.withValues(alpha: 0.3),
+                    blurRadius: 4,
+                    offset: const Offset(0, 2),
+                  )
+                ]
+              : null,
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              icon,
+              size: 16,
+              color: isSelected ? Colors.white : AppColors.primary,
+            ),
+            const SizedBox(width: 6),
+            Text(
+              label,
+              style: TextStyle(
+                fontSize: 12,
+                fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
+                color: isSelected ? Colors.white : AppColors.text,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildCategoryChecklistView(List<Product> allProducts) {
+    final categoryQuery = _activeCategoryTab.toLowerCase();
+
+    final matchingProducts = allProducts.where((p) {
+      final pCat = p.category.toLowerCase();
+      final pName = p.name.toLowerCase();
+      if (categoryQuery == 'plumbing') {
+        return pCat.contains('plumb') || pName.contains('plumb') || pCat.contains('pipe') || pCat.contains('fitting') || pCat.contains('valve');
+      }
+      if (categoryQuery == 'bathrooms') {
+        return pCat.contains('bath') || pName.contains('basin') || pName.contains('toilet') || pName.contains('tap') || pName.contains('mirror');
+      }
+      if (categoryQuery == 'shower cubicles' || categoryQuery == 'shower cubicals') {
+        return pCat.contains('shower') || pName.contains('shower') || pName.contains('cubicle') || pName.contains('enclosure') || pName.contains('glass');
+      }
+      return pCat == categoryQuery || pCat.contains(categoryQuery);
+    }).toList();
+
+    int totalChecked = 0;
+    double checkedTotalCost = 0;
+    for (final p in matchingProducts) {
+      if (_categoryChecked[p.id] == true) {
+        totalChecked++;
+        final qty = _categoryQuantities[p.id] ?? 1;
+        checkedTotalCost += p.unitPrice * qty;
+      }
+    }
+
+    if (matchingProducts.isEmpty) {
+      return Container(
+        width: double.infinity,
+        padding: const EdgeInsets.all(20),
+        decoration: BoxDecoration(
+          color: AppColors.background,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: AppColors.border),
+        ),
+        child: Column(
+          children: [
+            const Icon(Icons.inventory_2_outlined, size: 40, color: AppColors.textLight),
+            const SizedBox(height: 8),
+            Text(
+              'No items in database for "$_activeCategoryTab"',
+              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+            ),
+            const SizedBox(height: 4),
+            const Text(
+              'You can create items under this category in Inventory, or use Custom item entry.',
+              textAlign: TextAlign.center,
+              style: TextStyle(fontSize: 12, color: AppColors.textLight),
+            ),
+            const SizedBox(height: 12),
+            ElevatedButton.icon(
+              onPressed: () {
+                setState(() {
+                  _activeCategoryTab = 'all';
+                  _itemType = Constants.itemTypeStock;
+                });
+              },
+              icon: const Icon(Icons.add, size: 16),
+              label: const Text('Add Custom Item Instead'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppColors.primary,
+                foregroundColor: Colors.white,
+                minimumSize: Size.zero,
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          decoration: BoxDecoration(
+            color: AppColors.primary.withValues(alpha: 0.08),
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(color: AppColors.primary.withValues(alpha: 0.2)),
+          ),
+          child: Row(
+            children: [
+              const Icon(Icons.checklist, color: AppColors.primary, size: 20),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  '$_activeCategoryTab Checklist — Check items & specify quantity:',
+                  style: const TextStyle(
+                    fontWeight: FontWeight.bold,
+                    fontSize: 13,
+                    color: AppColors.primary,
+                  ),
+                ),
+              ),
+              Text(
+                '${matchingProducts.length} available',
+                style: const TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w600,
+                  color: AppColors.textLight,
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 10),
+
+        // Items Checklist
+        ListView.separated(
+          shrinkWrap: true,
+          physics: const NeverScrollableScrollPhysics(),
+          itemCount: matchingProducts.length,
+          separatorBuilder: (context, index) => const Divider(height: 1),
+          itemBuilder: (context, index) {
+            final product = matchingProducts[index];
+            final isChecked = _categoryChecked[product.id] ?? false;
+            final currentQty = _categoryQuantities[product.id] ?? 1;
+
+            return Container(
+              padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 4),
+              decoration: BoxDecoration(
+                color: isChecked ? AppColors.primary.withValues(alpha: 0.05) : Colors.transparent,
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Checkbox(
+                        value: isChecked,
+                        activeColor: AppColors.primary,
+                        onChanged: (val) {
+                          setState(() {
+                            _categoryChecked[product.id] = val ?? false;
+                            if (val == true && !_categoryQuantities.containsKey(product.id)) {
+                              _categoryQuantities[product.id] = 1;
+                            }
+                          });
+                        },
+                      ),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              product.name,
+                              style: TextStyle(
+                                fontWeight: FontWeight.bold,
+                                fontSize: 13,
+                                color: isChecked ? AppColors.primary : AppColors.text,
+                              ),
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              '${Formatters.currency(product.unitPrice)} / ${product.unit ?? 'pcs'} ${product.sku != null && product.sku!.isNotEmpty ? '• SKU: ${product.sku}' : ''}',
+                              style: const TextStyle(fontSize: 11, color: AppColors.textLight),
+                            ),
+                          ],
+                        ),
+                      ),
+
+                      // Quantity Controls
+                      if (isChecked)
+                        Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            IconButton(
+                              icon: const Icon(Icons.remove_circle_outline, size: 20),
+                              color: AppColors.primary,
+                              onPressed: () {
+                                if (currentQty > 1) {
+                                  setState(() {
+                                    _categoryQuantities[product.id] = currentQty - 1;
+                                  });
+                                }
+                              },
+                            ),
+                            Container(
+                              width: 36,
+                              height: 30,
+                              alignment: Alignment.center,
+                              decoration: BoxDecoration(
+                                border: Border.all(color: AppColors.border),
+                                borderRadius: BorderRadius.circular(6),
+                                color: Colors.white,
+                              ),
+                              child: Text(
+                                '$currentQty',
+                                style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+                              ),
+                            ),
+                            IconButton(
+                              icon: const Icon(Icons.add_circle_outline, size: 20),
+                              color: AppColors.primary,
+                              onPressed: () {
+                                setState(() {
+                                  _categoryQuantities[product.id] = currentQty + 1;
+                                });
+                              },
+                            ),
+                          ],
+                        ),
+                    ],
+                  ),
+                ],
+              ),
+            );
+          },
+        ),
+
+        const SizedBox(height: 16),
+        // Add Button
+        Container(
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(color: AppColors.border),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.04),
+                blurRadius: 6,
+                offset: const Offset(0, 2),
+              ),
+            ],
+          ),
+          child: Row(
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      '$totalChecked item(s) checked',
+                      style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+                    ),
+                    Text(
+                      'Subtotal: ${Formatters.currency(checkedTotalCost)}',
+                      style: const TextStyle(fontSize: 12, color: AppColors.primary, fontWeight: FontWeight.w600),
+                    ),
+                  ],
+                ),
+              ),
+              ElevatedButton.icon(
+                onPressed: totalChecked > 0 ? () => _addCategoryChecklistItems(matchingProducts) : null,
+                icon: const Icon(Icons.add_shopping_cart, size: 18),
+                label: Text('Add $totalChecked to Quote'),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: AppColors.primary,
+                  foregroundColor: Colors.white,
+                  minimumSize: const Size(0, 42),
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
   Widget _buildAddItemsCard(ProductProvider productProvider) {
+    final allCategories = productProvider.getCategories();
+    final List<String> featuredCategories = ['Plumbing', 'Bathrooms', 'Shower Cubicles'];
+    for (final cat in allCategories) {
+      if (!featuredCategories.any((fc) => fc.toLowerCase() == cat.toLowerCase())) {
+        featuredCategories.add(cat);
+      }
+    }
+
     return _buildCard(
       title: 'Add Items',
       icon: Icons.add_shopping_cart,
@@ -1335,7 +1798,7 @@ class _CreateQuoteScreenState extends State<CreateQuoteScreen>
                   ),
                 );
               }).toList(),
-              label: 'Select Section (Optional)',
+              label: 'Target Section (Optional)',
               isRequired: false,
               hint: 'Choose a section for items (Optional)',
               onChanged: (value) {
@@ -1349,35 +1812,47 @@ class _CreateQuoteScreenState extends State<CreateQuoteScreen>
             ),
             const SizedBox(height: 12),
           ],
-          // Item Type Selection
+
+          // Quick Category Selection Tabs
           Row(
-            children: [
+            children: const [
               Text(
-                'Item Type',
-                style: TextStyle(
-                  fontSize: 13,
-                  fontWeight: FontWeight.w600,
-                  color: AppColors.text,
-                ),
+                'Select Category / Mode:',
+                style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
               ),
             ],
           ),
-          const SizedBox(height: 6),
-          Row(
-            children: [
-              _buildTypeTab(Constants.itemTypeStock, 'Stock Item'),
-              _buildTypeTab(Constants.itemTypeService, 'Labour'),
-              _buildTypeTab(Constants.itemTypeOutsourced, 'Other'),
-            ],
+          const SizedBox(height: 8),
+          SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: Row(
+              children: [
+                _buildCategoryTabChip('all', 'Custom / Single Item', Icons.search),
+                const SizedBox(width: 8),
+                _buildCategoryTabChip('Plumbing', 'Plumbing 🚰', Icons.plumbing),
+                const SizedBox(width: 8),
+                _buildCategoryTabChip('Bathrooms', 'Bathrooms 🚽', Icons.bathtub),
+                const SizedBox(width: 8),
+                _buildCategoryTabChip('Shower Cubicles', 'Shower Cubicles 🚿', Icons.shower),
+                ...featuredCategories
+                    .where((c) => !['plumbing', 'bathrooms', 'shower cubicles', 'shower cubicals'].contains(c.toLowerCase()))
+                    .map((c) => Padding(
+                          padding: const EdgeInsets.only(left: 8),
+                          child: _buildCategoryTabChip(c, c, Icons.category),
+                        )),
+              ],
+            ),
           ),
           const SizedBox(height: 16),
-          
-          if (_itemType == Constants.itemTypeStock) ...[
-            // Product Label & Search Field
+
+          if (_activeCategoryTab != 'all')
+            _buildCategoryChecklistView(productProvider.allProducts)
+          else ...[
+            // Item Type Selection
             Row(
               children: [
                 Text(
-                  'Product *',
+                  'Item Type',
                   style: TextStyle(
                     fontSize: 13,
                     fontWeight: FontWeight.w600,
@@ -1387,67 +1862,92 @@ class _CreateQuoteScreenState extends State<CreateQuoteScreen>
               ],
             ),
             const SizedBox(height: 6),
-            _buildProductSearchWithCustomPrice(productProvider),
-            const SizedBox(height: 12),
+            Row(
+              children: [
+                _buildTypeTab(Constants.itemTypeStock, 'Stock Item'),
+                _buildTypeTab(Constants.itemTypeService, 'Labour'),
+                _buildTypeTab(Constants.itemTypeOutsourced, 'Other'),
+              ],
+            ),
+            const SizedBox(height: 16),
             
-            // Further Description (Always visible below product search)
-            CustomTextField(
-              controller: _furtherDescriptionController,
-              label: 'Further Description (optional)',
-              hint: 'Add extra details, specifications, etc.',
-              prefixIcon: const Icon(Icons.description, size: 18),
-            ),
-          ] else ...[
-            // Custom item description
-            CustomTextField(
-              controller: _customDescriptionController,
-              label: _itemType == Constants.itemTypeService ? 'Service / Labour Description *' : 'Item / Service Description *',
-              hint: _itemType == Constants.itemTypeService ? 'e.g., General plumbing installation' : 'e.g., Miscellaneous service / supply',
-              prefixIcon: Icon(
-                _itemType == Constants.itemTypeService ? Icons.design_services : Icons.miscellaneous_services,
-                size: 18,
+            if (_itemType == Constants.itemTypeStock) ...[
+              // Product Label & Search Field
+              Row(
+                children: [
+                  Text(
+                    'Product *',
+                    style: TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                      color: AppColors.text,
+                    ),
+                  ),
+                ],
               ),
-            ),
-            const SizedBox(height: 12),
-            // Custom item unit price / fee
-            CustomTextField(
-              controller: _customUnitPriceController,
-              label: _itemType == Constants.itemTypeService ? 'Labour Fee / Rate (KSh) *' : 'Cost (KSh) *',
-              hint: '0.00',
-              keyboardType: TextInputType.number,
-              prefixIcon: const Icon(Icons.attach_money, size: 18),
-            ),
-          ],
-          const SizedBox(height: 12),
-
-          Row(
-            children: [
-              Expanded(
-                child: CustomTextField(
-                  controller: _quantityController,
-                  label: _itemType == Constants.itemTypeService ? 'Hours / Units' : 'Quantity',
-                  keyboardType: TextInputType.number,
-                  prefixIcon: const Icon(Icons.numbers, size: 20),
+              const SizedBox(height: 6),
+              _buildProductSearchWithCustomPrice(productProvider),
+              const SizedBox(height: 12),
+              
+              // Further Description (Always visible below product search)
+              CustomTextField(
+                controller: _furtherDescriptionController,
+                label: 'Further Description (optional)',
+                hint: 'Add extra details, specifications, etc.',
+                prefixIcon: const Icon(Icons.description, size: 18),
+              ),
+            ] else ...[
+              // Custom item description
+              CustomTextField(
+                controller: _customDescriptionController,
+                label: _itemType == Constants.itemTypeService ? 'Service / Labour Description *' : 'Item / Service Description *',
+                hint: _itemType == Constants.itemTypeService ? 'e.g., General plumbing installation' : 'e.g., Miscellaneous service / supply',
+                prefixIcon: Icon(
+                  _itemType == Constants.itemTypeService ? Icons.design_services : Icons.miscellaneous_services,
+                  size: 18,
                 ),
               ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: CustomTextField(
-                  controller: _discountController,
-                  label: 'Discount (KSh or %)',
-                  hint: '0 or 10%',
-                  prefixIcon: const Icon(Icons.local_offer, size: 18),
-                ),
+              const SizedBox(height: 12),
+              // Custom item unit price / fee
+              CustomTextField(
+                controller: _customUnitPriceController,
+                label: _itemType == Constants.itemTypeService ? 'Labour Fee / Rate (KSh) *' : 'Cost (KSh) *',
+                hint: '0.00',
+                keyboardType: TextInputType.number,
+                prefixIcon: const Icon(Icons.attach_money, size: 18),
               ),
             ],
-          ),
-          const SizedBox(height: 12),
-          CustomButton(
-            text: 'Add to Quote',
-            onPressed: _addItem,
-            icon: Icons.add,
-            variant: ButtonVariant.primary,
-          ),
+            const SizedBox(height: 12),
+
+            Row(
+              children: [
+                Expanded(
+                  child: CustomTextField(
+                    controller: _quantityController,
+                    label: _itemType == Constants.itemTypeService ? 'Hours / Units' : 'Quantity',
+                    keyboardType: TextInputType.number,
+                    prefixIcon: const Icon(Icons.numbers, size: 20),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: CustomTextField(
+                    controller: _discountController,
+                    label: 'Discount (KSh or %)',
+                    hint: '0 or 10%',
+                    prefixIcon: const Icon(Icons.local_offer, size: 18),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            CustomButton(
+              text: 'Add to Quote',
+              onPressed: _addItem,
+              icon: Icons.add,
+              variant: ButtonVariant.primary,
+            ),
+          ],
         ],
       ),
     );
@@ -2002,6 +2502,13 @@ class _CreateQuoteScreenState extends State<CreateQuoteScreen>
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          CustomTextField(
+            controller: _titleController,
+            label: 'Quotation Title / Subject',
+            hint: 'What is this quotation for? (e.g. Bathroom Plumbing Repair)',
+            prefixIcon: const Icon(Icons.title, size: 20),
+          ),
+          const SizedBox(height: 16),
           _buildDueDateField(),
           const SizedBox(height: 16),
           CustomTextField(

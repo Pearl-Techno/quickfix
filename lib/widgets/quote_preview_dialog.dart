@@ -7,6 +7,7 @@ import '../models/quote.dart';
 import '../models/quote_item.dart';
 import '../models/invoice.dart';
 import '../services/pdf_service.dart';
+import '../services/database_service.dart';
 import '../utils/helpers.dart';
 import '../utils/formatters.dart';
 import 'package:provider/provider.dart';
@@ -25,6 +26,7 @@ class QuotePreviewDialog extends StatefulWidget {
 class _QuotePreviewDialogState extends State<QuotePreviewDialog>
     with SingleTickerProviderStateMixin {
   bool _isExporting = false;
+  String _docNumber = '';
   late AnimationController _animationController;
   late Animation<double> _fadeAnimation;
 
@@ -39,6 +41,30 @@ class _QuotePreviewDialogState extends State<QuotePreviewDialog>
       CurvedAnimation(parent: _animationController, curve: Curves.easeIn),
     );
     _animationController.forward();
+    _initDocNumber();
+  }
+
+  void _initDocNumber() {
+    final existingNum = widget.quoteData['quoteNumber'] ??
+        widget.quoteData['quote_number'] ??
+        widget.quoteData['invoiceNumber'] ??
+        widget.quoteData['invoice_number'];
+    if (existingNum != null && existingNum.toString().isNotEmpty) {
+      _docNumber = existingNum.toString();
+    } else {
+      _loadDocNumber();
+    }
+  }
+
+  Future<void> _loadDocNumber() async {
+    final dbService = DatabaseService();
+    if (widget.isInvoice) {
+      final num = await dbService.generateInvoiceNumber();
+      if (mounted) setState(() => _docNumber = num);
+    } else {
+      final num = await dbService.generateQuoteNumber();
+      if (mounted) setState(() => _docNumber = num);
+    }
   }
 
   @override
@@ -79,11 +105,13 @@ class _QuotePreviewDialogState extends State<QuotePreviewDialog>
       }
       final notes = widget.quoteData['notes'] as String?;
       final siteMeasurements = widget.quoteData['siteMeasurements'] as String?;
+      final docNumToUse = _docNumber.isNotEmpty
+          ? _docNumber
+          : (widget.isInvoice ? 'QPN00001' : '010A');
 
       final quote = Quote(
         id: 'preview-${DateTime.now().millisecondsSinceEpoch}',
-        quoteNumber:
-            'QF-${DateTime.now().year}${DateTime.now().month.toString().padLeft(2, '0')}${DateTime.now().day.toString().padLeft(2, '0')}-PREVIEW',
+        quoteNumber: docNumToUse,
         customerId: customer.id,
         status: Constants.quoteStatusDraft,
         subtotal: subtotal,
@@ -91,6 +119,7 @@ class _QuotePreviewDialogState extends State<QuotePreviewDialog>
         total: total,
         grandTotal: total,
         scope: widget.quoteData['scope'] as String?,
+        title: widget.quoteData['title'] as String?,
         notes: notes,
         terms: widget.quoteData['terms'] as String?,
         siteMeasurements: siteMeasurements,
@@ -106,7 +135,7 @@ class _QuotePreviewDialogState extends State<QuotePreviewDialog>
       if (widget.isInvoice) {
         final invoice = Invoice(
           id: 'preview-${DateTime.now().millisecondsSinceEpoch}',
-          invoiceNumber: 'INV-PREVIEW',
+          invoiceNumber: docNumToUse,
           quoteId: 'preview-quote-id',
           customerId: customer.id,
           subtotal: subtotal,
@@ -246,6 +275,11 @@ class _QuotePreviewDialogState extends State<QuotePreviewDialog>
                             const SizedBox(height: 12),
                              _buildPreviewCustomerInfo(customer),
                              const SizedBox(height: 12),
+                             if (widget.quoteData['title'] != null &&
+                                 (widget.quoteData['title'] as String).isNotEmpty) ...[
+                               _buildPreviewNotes(widget.quoteData['title'] as String, 'Quotation Title / RE'),
+                               const SizedBox(height: 12),
+                             ],
                              if (widget.quoteData['scope'] != null &&
                                  (widget.quoteData['scope'] as String).isNotEmpty) ...[
                                _buildPreviewNotes(widget.quoteData['scope'] as String, 'Scope of Works'),
@@ -424,9 +458,9 @@ class _QuotePreviewDialogState extends State<QuotePreviewDialog>
                 ),
               ),
               Text(
-                widget.isInvoice
-                    ? 'INV-PREVIEW'
-                    : 'QF-${DateTime.now().year}${DateTime.now().month.toString().padLeft(2, '0')}${DateTime.now().day.toString().padLeft(2, '0')}-PREVIEW',
+                _docNumber.isNotEmpty
+                    ? _docNumber
+                    : (widget.isInvoice ? 'QPN00001' : '010A'),
                 style: const TextStyle(color: Colors.white70, fontSize: 10),
               ),
             ],

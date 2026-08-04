@@ -25,6 +25,7 @@ class _AddCustomerScreenState extends State<AddCustomerScreen>
   final _siteLocationController = TextEditingController();
   final _siteNotesController = TextEditingController();
   final _notesController = TextEditingController();
+  final _remarksController = TextEditingController();
 
   bool _isSubmitting = false;
   bool _showSummary = false;
@@ -53,6 +54,7 @@ class _AddCustomerScreenState extends State<AddCustomerScreen>
     _siteLocationController.dispose();
     _siteNotesController.dispose();
     _notesController.dispose();
+    _remarksController.dispose();
     _animationController.dispose();
     super.dispose();
   }
@@ -66,6 +68,12 @@ class _AddCustomerScreenState extends State<AddCustomerScreen>
     setState(() => _isSubmitting = true);
 
     final provider = context.read<CustomerProvider>();
+    final remarksText = _remarksController.text.trim().isNotEmpty
+        ? _remarksController.text.trim()
+        : (_notesController.text.trim().isNotEmpty
+            ? _notesController.text.trim()
+            : null);
+
     final success = await provider.addCustomer(
       name: _nameController.text.trim(),
       phone: _phoneController.text.trim().isEmpty
@@ -83,6 +91,7 @@ class _AddCustomerScreenState extends State<AddCustomerScreen>
       siteNotes: _siteNotesController.text.trim().isEmpty
           ? null
           : _siteNotesController.text.trim(),
+      remarks: remarksText,
     );
 
     setState(() => _isSubmitting = false);
@@ -485,7 +494,7 @@ class _AddCustomerScreenState extends State<AddCustomerScreen>
 
   Widget _buildNotesCard() {
     return _buildCard(
-      title: 'Additional Notes',
+      title: 'Remarks & Additional Notes',
       icon: Icons.note_add_outlined,
       iconColor: AppColors.secondary,
       tag: 'Optional',
@@ -493,10 +502,18 @@ class _AddCustomerScreenState extends State<AddCustomerScreen>
       child: Column(
         children: [
           CustomTextField(
-            controller: _notesController,
-            label: 'Notes',
-            hint: 'Add any additional notes about the customer',
+            controller: _remarksController,
+            label: 'Client Remarks',
+            hint: 'Enter any specific remarks for this client',
             maxLines: 3,
+            prefixIcon: const Icon(Icons.comment_outlined, size: 20),
+          ),
+          const SizedBox(height: 16),
+          CustomTextField(
+            controller: _notesController,
+            label: 'Additional Notes',
+            hint: 'Add any extra notes about the customer',
+            maxLines: 2,
             prefixIcon: const Icon(Icons.note_outlined, size: 20),
           ),
         ],
@@ -620,6 +637,7 @@ class _AddCustomerScreenState extends State<AddCustomerScreen>
           _buildSummaryRow('Email', _emailController.text),
           _buildSummaryRow('Address', _addressController.text),
           _buildSummaryRow('Site Location', _siteLocationController.text),
+          _buildSummaryRow('Remarks', _remarksController.text),
           _buildSummaryRow('Notes', _notesController.text),
         ],
       ),

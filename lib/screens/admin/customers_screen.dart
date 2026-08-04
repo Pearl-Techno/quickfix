@@ -152,7 +152,7 @@ class _CustomersScreenState extends State<CustomersScreen>
                   : LayoutBuilder(
                       builder: (context, constraints) {
                         final availableW = constraints.maxWidth - 32;
-                        final tableW = availableW > 1000 ? availableW : 1000.0;
+                        final tableW = availableW > 1150 ? availableW : 1150.0;
                         return RefreshIndicator(
                           onRefresh: _loadCustomers,
                           child: _isGridView
@@ -402,6 +402,7 @@ class _CustomersScreenState extends State<CustomersScreen>
               Expanded(flex: 2, child: _buildHeaderCell('Phone')),
               Expanded(flex: 3, child: _buildHeaderCell('Email')),
               Expanded(flex: 3, child: _buildHeaderCell('Address')),
+              Expanded(flex: 3, child: _buildHeaderCell('Remarks')),
               Expanded(
                 flex: 2,
                 child: _buildHeaderCell('Status', center: true),
@@ -443,6 +444,7 @@ class _CustomersScreenState extends State<CustomersScreen>
                 Expanded(flex: 2, child: _buildCell(customer.phone ?? '—')),
                 Expanded(flex: 3, child: _buildCell(customer.email ?? '—')),
                 Expanded(flex: 3, child: _buildCell(customer.address ?? '—')),
+                Expanded(flex: 3, child: _buildCell(customer.remarks ?? customer.siteNotes ?? '—')),
                 Expanded(flex: 2, child: _buildStatusCell(customer)),
                 Expanded(flex: 2, child: _buildActionCell(customer)),
               ],
@@ -701,6 +703,29 @@ class _CustomersScreenState extends State<CustomersScreen>
                       ),
                     ],
                   ),
+                if (customer.hasRemarks)
+                  Row(
+                    children: [
+                      const Icon(
+                        Icons.comment,
+                        size: 14,
+                        color: AppColors.primary,
+                      ),
+                      const SizedBox(width: 4),
+                      Expanded(
+                        child: Text(
+                          customer.remarks!,
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: AppColors.primary,
+                            fontWeight: FontWeight.w500,
+                          ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                    ],
+                  ),
                 const Spacer(),
                 Row(
                   mainAxisAlignment: MainAxisAlignment.end,
@@ -849,6 +874,12 @@ class CustomerDetailsDialog extends StatelessWidget {
             ),
             const Divider(height: 16),
             _buildDetailRow(
+              Icons.comment,
+              'Remarks',
+              customer.remarks ?? customer.siteNotes ?? 'N/A',
+            ),
+            const Divider(height: 16),
+            _buildDetailRow(
               Icons.note,
               'Site Notes',
               customer.siteNotes ?? 'N/A',
@@ -946,6 +977,7 @@ class _EditCustomerDialogState extends State<EditCustomerDialog> {
   late TextEditingController _addressController;
   late TextEditingController _siteLocationController;
   late TextEditingController _siteNotesController;
+  late TextEditingController _remarksController;
   bool _isSaving = false;
 
   @override
@@ -963,6 +995,9 @@ class _EditCustomerDialogState extends State<EditCustomerDialog> {
     _siteNotesController = TextEditingController(
       text: widget.customer.siteNotes ?? '',
     );
+    _remarksController = TextEditingController(
+      text: widget.customer.remarks ?? '',
+    );
   }
 
   @override
@@ -973,6 +1008,7 @@ class _EditCustomerDialogState extends State<EditCustomerDialog> {
     _addressController.dispose();
     _siteLocationController.dispose();
     _siteNotesController.dispose();
+    _remarksController.dispose();
     super.dispose();
   }
 
@@ -1000,6 +1036,9 @@ class _EditCustomerDialogState extends State<EditCustomerDialog> {
       siteNotes: _siteNotesController.text.trim().isEmpty
           ? null
           : _siteNotesController.text.trim(),
+      remarks: _remarksController.text.trim().isEmpty
+          ? null
+          : _remarksController.text.trim(),
     );
 
     setState(() => _isSaving = false);
@@ -1069,6 +1108,13 @@ class _EditCustomerDialogState extends State<EditCustomerDialog> {
                   controller: _addressController,
                   label: 'Address',
                   hint: 'Enter address',
+                  maxLines: 2,
+                ),
+                const SizedBox(height: 12),
+                _buildTextField(
+                  controller: _remarksController,
+                  label: 'Client Remarks',
+                  hint: 'Enter client remarks',
                   maxLines: 2,
                 ),
                 const SizedBox(height: 12),

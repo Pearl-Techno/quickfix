@@ -144,16 +144,14 @@ class Formatters {
     return name.substring(0, 1).toUpperCase();
   }
 
-  // Format quote number (e.g., "QF-20240629-001")
-  static String quoteNumber(DateTime date, int sequence) {
-    final dateStr = DateFormat('yyyyMMdd').format(date);
-    return 'QF-$dateStr-${sequence.toString().padLeft(4, '0')}';
+  // Format quote number (e.g., "010A")
+  static String quoteNumber(int sequence, String letter) {
+    return '${sequence.toString().padLeft(3, '0')}$letter';
   }
 
-  // Format invoice number (e.g., "INV-20240629-001")
-  static String invoiceNumber(DateTime date, int sequence) {
-    final dateStr = DateFormat('yyyyMMdd').format(date);
-    return 'INV-$dateStr-${sequence.toString().padLeft(4, '0')}';
+  // Format invoice number (e.g., "QPN00001")
+  static String invoiceNumber(int sequence) {
+    return 'QPN${sequence.toString().padLeft(5, '0')}';
   }
 
   // Format status title (e.g., "draft" -> "Draft")
